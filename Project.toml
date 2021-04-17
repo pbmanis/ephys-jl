@@ -1,0 +1,13 @@
+name = "Acq4Reader"
+uuid = "9822a2fc-7079-4034-a464-da3551ff152d"
+authors = ["Paul Manis <pmanis@med.unc.edu> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.6"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
