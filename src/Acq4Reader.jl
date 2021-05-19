@@ -6,6 +6,9 @@ using Printf
 
 using InteractiveUtils
 
+using PyCall
+pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader... 
+
 export read_hdf5, get_lims
 
 
@@ -20,6 +23,8 @@ end
 greeter()
 
 device = "MultiClamp1.ma"
+laser_device = "Laser-Blue-raw.ma"
+photodiode_device = "Photodiode.ma"
 
 # filename = "/Volumes/Pegasus_002/Additional_Kasten/2020.02.24_000/slice_001/cell_000/fast_IO_CC_001/"
 # filename = "/Volumes/Pegasus_002/Additional_Kasten/2020.02.24_000/slice_000/cell_000/fast_IO_001/"
@@ -86,6 +91,12 @@ function read_hdf5(filename)
     if mode == ""
         throw(ErrorException("No acquisition mode found"))
     end
+
+    indexfile = joinpath(filename, ".index")
+    cf = pgc.readConfigFile(indexfile)
+    wavefunction = cf["."]["devices"]["Laser-Blue-raw"]["channels"]["pCell"]["waveGeneratorWidget"]["function"]
+    data_info["Laser.wavefunction"] = wavefunction
+    
     println("Protocol reading finished.")
     return tdat, idat, vdat, data_info
 end
@@ -103,7 +114,7 @@ function get_lims(mode)
         top_lims = (-120e-3, 40e-3)
         bot_lims = (-2e-9, 2e-9)
     else
-        println("Unknown Mode HELP")
+        println("Unknown Mode: ", mode)
     end
 end
 
@@ -164,17 +175,25 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
     c1 = h5readattr(full_filename, "info/0/cols/1")
     c2 = h5readattr(full_filename, "info/0/cols/1")
     ClampState = h5readattr(full_filename, "info/2/ClampState")
+    DAQPrimary = h5readattr(full_filename, "info/2/DAQ/primary")
+    DAQSecondary = h5readattr(full_filename, "info/2/DAQ/secondary")
+    DAQCommand = h5readattr(full_filename, "info/2/DAQ/command")
 
     data_info =
-        Dict("clampstate" => deepcopy(ClampState), "c0" => c0, "c1" => c1, "c2" => c2)
-
+        Dict("clampstate" => deepcopy(ClampState),
+            "c0" => c0, "c1" => c1, "c2" => c2,
+            "DAQ.Primary" =>deepcopy(DAQPrimary),
+            "DAQ.Secondary" =>deepcopy(DAQSecondary),
+            "DAQ.Command" =>deepcopy(DAQCommand),
+            "Laser.wavefunction" => "",
+            )
+    
     time = fid["info"]["1"]["values"][:]
     data = deepcopy(fid["data"][:, :])
     close(fid)
+
     return time, data, data_info
 end
-
-
 
 
 end
