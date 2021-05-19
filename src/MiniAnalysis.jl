@@ -11,11 +11,11 @@ using ElasticArrays
 
 using Distributed
 using SharedArrays  # important for parallel/looping
-using ProgressMeter
+# using ProgressMeter
 using Base.Threads
 using FFTW
 using ForwardDiff
-using OnlineStats
+# using OnlineStats
 #using BenchmarkTools  Throws error in package
 
 #ENV["MPLBACKEND"] = "MacOSX"
@@ -23,8 +23,10 @@ using Plots
 pyplot()
 
 
-export find_events
+# externally visible routines:
+
 export testdetector, testtemplate, make_test_waveforms
+export detect_events
 
 function clements_bekkers(data::Array{Float64, 1}, pars::NamedTuple{(:t, :dt), Tuple{Vector{Float64}, Float64}}) # template::Array{Float64, 1}, tau, dt)
     # , data2::Array{Float64, 1}, u::Array{Int64, 1}, sse, scale, offset, detcrit)
@@ -95,11 +97,12 @@ function aj_deconvolve(data::Array{Float64, 1},
     
     llambda::Float64 = 5.0
     data = data .- mean(data)
-    
+    # println("size template: ", size(template))
     # Weiner filtering/convolution
     if size(template)[1] < size(data)[1]
         template = vcat(template, zeros(size(data)[1] - size(template)[1]))
     end
+    # println(size(data), " ", size(template))
     H = fft(template)
     # if size(H)[1] < size(data)[1]
     #     H = vcat(H, zeros(size(data)[1] - size(H)[1]))
@@ -138,23 +141,155 @@ function measure_noise(data::Array{Float64, 1};  threshold=2.0, iterations=2)
         return std(data)
     end
 end
-        
-function zero_crossings(data::Array{Float64, 1}, 
-    pars::NamedTuple{(:sign, :minDuration, :minPeak, :minCharge, :noiseThreshold, :dt, :extra),
-            Tuple{Int64, Float64, Float64, Float64, Float64, Float64, Bool}})
-    #=
-    locate events of any shape in a signal. Works by finding regions of the signal
-    that deviate from noise, using the area, duration and minimum peak beneath the deviation as the detection criteria.
 
-    Makes the following assumptions about the signal:
-      - noise is gaussian
-      - baseline is centered at 0 (high-pass filtering may be required to achieve this).
-      - no 0 crossings within an event due to noise (low-pass filtering may be required to achieve this)
-      - Events last more than minDuration time
-      Return an array of events where each row is (start, length, sum, peak)
-   =#
-    check_plot = true  # set true to make plots to show the results
+"""
+Scatter of pairs of datasets, with marginal distributions
+
+"""
+
+function compare_plots(x, y; labx = "", laby = "", binsx=25, binsy=25, ms=2)
+    println("max y: ", maximum(y))
+    p2 = plot(x, y, seriestype = :scatter,
+        markercolor="black", markerstokewidth=0.1, markersize=2,
+        markeralpha=0.5,
+        xlim = [0, maximum(x)], xlabel=labx,
+        ylim = [0, maximum(y)], ylabel=laby,
+        # subplot = 1,
+        framestyle = :box)
+    p3 = plot(x, seriestype = :histogram, bins=binsx,
+        orientation = :v, 
+        framestyle = :semi,
+        xlim = [0, maximum(x)], ylabel=labx, 
+        )
+    p4 = plot(y, seriestype = :histogram, bins=binsy,
+            orientation = :h, 
+            framestyle = :semi,
+            ylim = [0, maximum(y)], xlabel=laby,
+            )
+
+    return (scatter = p2, mx = p3, my = p4)
+end
+
+"""
+Plot some detected measures against each other, along
+with marginal histograms
+events should be tuple: 
+events = (dur=ev_dur*1e3, amp=ev_amp*1e12, sum=ev_sum, indx=ev_index, ipeaks=ev_peak_index)
+
+"""
+function plot_measures(x, data, crosses, events; labx="", laby="")
+    ncrosses = crosses.ncrosses
+    pcrosses = crosses.pcrosses
     
+    default(fillcolor = :lightgrey, markercolor = :white, grid = false, legend = false)
+    l = @layout [aa{0.1h}; a{0.25h}; [b{0.75w, 0.15h}; c{1.1w, 0.8h} d{1h, 0.15w}]]
+    # plot(layout = l, link = :both, size = (500, 500), margin = -10Plots.px)
+    p1 = plot(x, data, linewidth=0.5, color="black")
+    p1 = plot!(p1, x[ncrosses], data[ncrosses], seriestype = :scatter, markercolor="blue", markerstrokewidth=0, markersize=4)
+    p1 = plot!(p1, x[pcrosses], data[ncrosses], seriestype = :scatter, markercolor="red", markerstrokewidth=0, markersize=4)
+    p1 = plot!(p1, x[events.ipeak], data[events.ipeak], seriestype = :scatter, markercolor="cyan", markerstrokewidth=0, markersize=4)
+    title = plot(
+        title = @sprintf("%s Test", mode),
+        grid = false,
+        showaxis = false,
+        yticks = false,
+        xticks = false,
+        bottom_margin = -50Plots.px,
+    )
+    hp = compare_plots(events.durs, events.amps, labx="Dur (ms)", laby="Amp (pA)")
+    plot(title, p1, hp.mx, hp.hist, hp.my, layout = l) # , layout=grid(3, 1, heights = [0.1, 0.45, 0.35]))  # note use of show=true here - critical!
+    plot!(size = (600, 600), show=true)
+    show()
+end
+
+function plot_event_distributions(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, sign; data_info=nothing)
+
+    dt_seconds = mean(diff(tdat[:,1]))
+    evamps = Vector{Float64}()
+    evdurs = Vector{Float64}()
+    evrts = Vector{Float64}()
+    evlats = Vector{Float64}()
+    # get the light flash times from the data_info
+    if data_info != nothing
+        wv = data_info["Laser.wavefunction"]
+        u = split(wv, "\n")
+        stim_lats = Vector{Float64}()
+        re_float = r"[+-]?\d+\.?\d*"
+        for i = 1:size(u)[1]
+            s = match(re_float, u[i])
+            append!(stim_lats, parse(Float64, s.match)*1e3)
+        end
+    end
+
+    response_window = 25.0 # now in msec
+    for i = 1:size(idat)[2]
+        if npks[i] == 0
+            continue
+        else
+            append!(evamps, idat[pks[i], i] .* sign .* 1e12)
+            append!(evdurs, (ev_end[i].-ev[i]).* dt_seconds .* 1e3)
+            append!(evrts, (pks[i].-ev[i]).*dt_seconds .* 1e3)
+            if data_info != nothing
+                evtsi = tdat[ev[i], i]*1e3
+                for j = 1:size(stim_lats)[1]
+                    u = findall((evtsi .> stim_lats[j]) .& (evtsi .<= (stim_lats[j]+response_window)))
+                    println("u: ", u, evtsi)
+                    println("   lats: ", stim_lats[j])
+                    append!(evlats, evtsi[u].-stim_lats[j])
+                end
+            else
+                append!(evlats, tdat[ev[i], i]*1e3)
+            end
+        end
+    end
+    binsx = 50
+    p_amp = plot(evamps, seriestype = :histogram, bins=binsx,
+        orientation = :v, 
+        framestyle = :semi,
+        xlim = [0, maximum(evamps)], 
+        xlabel="Amplitude (pA)",
+        ylabel = "# obs",
+        )
+    p_dur = plot(evdurs, seriestype = :histogram, bins=binsx,
+        orientation = :v, 
+        framestyle = :semi,
+        xlim = [0, maximum(evdurs)], xlabel="Durations (ms)",
+        ylabel = "# obs",
+        )
+    p_rt = plot(evrts, seriestype = :histogram, bins=binsx,
+        orientation = :v, 
+        framestyle = :semi,
+        xlim = [0, maximum(evrts)], xlabel="Rise Times (ms)",
+        ylabel = "# obs",
+        )
+    p_lat = plot(evlats, seriestype = :histogram, bins=binsx,
+        orientation = :v, 
+        framestyle = :semi,
+        xlim = [0, response_window], xlabel="Latencies (ms)",
+        ylabel = "# obs",
+        )
+    l = @layout[a b; c d]
+    u = plot(p_amp, p_dur, p_rt, p_lat, layout=l)
+    return u
+end
+
+"""
+locate events of any shape in a signal. Works by finding regions of the signal
+that deviate from noise, using the area, duration and minimum peak beneath the deviation as the detection criteria.
+
+Makes the following assumptions about the signal:
+  - noise is gaussian
+  - baseline is centered at 0 (high-pass filtering may be required to achieve this).
+  - no 0 crossings within an event due to noise (low-pass filtering may be required to achieve this)
+  - Events last more than minDuration time
+  Return an array of events where each row is (start, length, sum, peak)
+
+
+"""
+function zero_crossings(data::Array{Float64, 1}, 
+    pars::NamedTuple{(:sign, :dt, :minDuration, :minPeak, :minCharge, :noiseThreshold, :checkplot, :extra),
+            Tuple{Int64, Float64, Float64, Float64, Float64, Float64,  Bool, Bool}})
+
     minDuration = pars.minDuration
     minPeak = pars.minPeak
     minCharge = pars.minCharge
@@ -178,7 +313,7 @@ function zero_crossings(data::Array{Float64, 1},
     else
         np = false
     end
-    
+
     ev_index = zeros(Int64, size(ncrosses)[1])
     ev_amp = zeros(Float64, size(ncrosses)[1])
     ev_peak_index = zeros(Int64, size(ncrosses)[1])
@@ -253,46 +388,15 @@ function zero_crossings(data::Array{Float64, 1},
     ev_peak_index = ev_peak_index[1:k]
     ev_dur = ev_dur[1:k]
 
-    if check_plot
-        default(fillcolor = :lightgrey, markercolor = :white, grid = false, legend = false)
-        l = @layout [aa{0.1h}; a{0.25h}; [b{0.75w, 0.15h}; c{1.1w, 0.8h} d{1h, 0.15w}]]
-        # plot(layout = l, link = :both, size = (500, 500), margin = -10Plots.px)
-        p1 = plot(x, data, linewidth=0.5, color="black")
-        p1 = plot!(p1, x[ncrosses], data[ncrosses], seriestype = :scatter, markercolor="blue", markerstrokewidth=0, markersize=4)
-        p1 = plot!(p1, x[pcrosses], data[ncrosses], seriestype = :scatter, markercolor="red", markerstrokewidth=0, markersize=4)
-        p1 = plot!(p1, x[ev_peak_index], data[ev_peak_index], seriestype = :scatter, markercolor="cyan", markerstrokewidth=0, markersize=4)
-        p2 = plot(ev_dur .* 1e3, ev_amp.* 1e12, seriestype = :scatter, markercolor="black", markerstokewidth=0, markersize=4,
-            xlim = [0, 50], xlabel="Dur (ms)",
-            ylim = [0, 100.], ylabel="Amp (pA)", 
-            # subplot = 1,
-            framestyle = :box)
-        p3 = plot(ev_dur .* 1e3, seriestype = :histogram, bins=25,
-            orientation = :v, 
-            framestyle = :semi,
-            xlim = [0, 50.], ylabel="Dur (ms)", 
-            )
-        p4 = plot(ev_amp.*1e12, seriestype = :histogram, bins=25,
-                orientation = :h, 
-                framestyle = :semi,
-                ylim = [0, 100], xlabel="Amp (pA)",
-                )
-        title = plot(
-            title = @sprintf("%s Test", mode),
-            grid = false,
-            showaxis = false,
-            yticks = false,
-            xticks = false,
-            bottom_margin = -50Plots.px,
-        )
-        plot(title, p1, p3, p2, p4, layout = l) # , layout=grid(3, 1, heights = [0.1, 0.45, 0.35]))  # note use of show=true here - critical!
-        plot!(size = (600, 600), show=true)
-        show()
+    crosses = (ncrosses= ncrosses, pcrosses= pcrosses)
+    events = (durs=ev_dur.*1e3, amps=ev_amp.*1e12, sums=ev_sum, indx=ev_index, ipeak=ev_peak_index)
+    if pars.checkplot
+        plot_measures(x, data, crosses, events, labx="Dur (ms)", laby="Amp (ms)")
     end
     crit = zeros(Float64, size(data)[1])
     crit[ev_index] .= 1.0
     if pars.extra  # return other information
-        retpars = (onset_idx: ev_index, amp: ev_amp, sum: ev_sum, peak_idx: ev_peak_index, dur: ev_dur)
-        return data, crit, retpars
+        return data, crit, events
     else
         return data, crit
     end
@@ -402,7 +506,7 @@ function make_test_waveforms(;N=1, rate=5.0, maxt=5.0, lpf=3000.0, taus=[1e-3, 3
         t_psc[:, i] = collect(range(0.0, tmax, length = size(wv)[1]))
         w_psc[:, i] = filter(t_psc, wv, lpf = lpf)
     end
-    return t_psc, w_psc, dt_seconds, size(w_psc)[1], template
+    return t_psc, w_psc, dt_seconds, template
 
 end
 
@@ -422,40 +526,63 @@ function identify_events(wave, crit, thr, dt, sign; thresh = 3.0, ev_win = 5e-3)
     ev = ev[evn]
     swin = floor(Int, ev_win / dt)
 
-    # find maximum of event
+    # find points for maximum and end of event
     pks = zeros(Int64, (size(ev)[1]))
+    ev_end = zeros(Int64, (size(ev)[1]))
     maxn = size(ev)[1]
     k = 1
     for iev in ev
         if iev + swin < size(wave)[1]
             if sign == -1
-                ipk = argmin(wave[iev:(iev+swin)])
+                iend = findfirst((wave[iev:end-1] .<= 0) .& (wave[iev+1:end] .> 0)) # define end as first crossing
+                ipk = argmin(wave[iev:(iev+iend)])
             else
-                ipk = argmax(wave[iev:(iev+swin)])
+                iend = findfirst((wave[iev:end-1] .>= 0) .& (wave[iev+1:end] .< 0))
+                ipk = argmax(wave[iev:(iev+iend)])
             end
             pks[k] = ipk + iev
+            if iend != nothing
+                evt = iev + ipk + iend
+                ev_end[k] = minimum((size(wave)[1], evt))
+            end
             k += 1
         else
             maxn -= 1  # event goes beyond end, so delete it
         end
     end
-    return ev[1:maxn], pks[1:maxn]
+    return ev[1:maxn], pks[1:maxn], ev_end[1:maxn]
 end
 
+"""
+detect_events(mode, idat, dt_seconds; parallel=false,  N=1, thresh=3.0, tau1=1, tau2=3, sign=1, zcpars = ())
 
-
-function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3, sign=1, zcpars = ())
-        if zcpars == ()
-            zcpars=(minDuration=0.0, minPeak=5e-12, minCharge=0.0, noiseThreshold=4.)
-        end
-    N_tests = N
-    t_psc, idat, dt_seconds, nwave, template = make_test_waveforms(N=N_tests, taus=[tau1*1e-3, tau2*1e-3], sign=sign)
+Detect events using different methods set by mode (CB, AJ, ZC, RS) in an array of current traces acquired
+with time intervals in dt_seconds.
+If parallel is true, we will run in parallel mode; otherwise each trace is analyzed serially
+thresh is the threshold level for event detection measured as the sd of the criteria array
+returned from the detection routines.
+tau1 and tau2 are for the template (used in CB, AJ and RS)
+sign is the sign of the signal to detect (+1 or -1)
+zcpars is a tuple of the parameters for the zero-crossing method if it us used.
+Must be of format: zcpars=(minDuration=0.0, minPeak=5e-12, minCharge=0.0, noiseThreshold=4.)
+"""
+function detect_events(mode, idat, dt_seconds; parallel=false, thresh=3.0, tau1=1e-3, tau2=3e-3, sign=1, zcpars = ())
     n_traces = size(idat)[2]
+    nwave = size(idat)[1]
+    taus = [tau1, tau2]
+    tmax = 5 * taus[2]
+    t_template, template =
+        make_template(taus = taus, tmax = tmax, dt_seconds = dt_seconds, sign = sign)
+    
+    # println("make template: ", size(template))
+    # println(taus)
+    # println(tmax)
+    # println(dt_seconds)
     ntemplate = nwave - size(template)[1]
+
     if mode == "CB"
         method = clements_bekkers
         pars = (t=template, dt=dt_seconds)
-        
     elseif mode == "AJ"
         method = aj_deconvolve
         pars = (template=template, tau=[tau1, tau2], dt=dt_seconds)
@@ -464,13 +591,17 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
         pars = (tau=tau1, dt=dt_seconds)  # tau instead of template
     elseif mode == "ZC"
         method = zero_crossings
+        if zcpars == ()  # make zcpars is populated
+            zcpars=(minDuration=0.0, minPeak=5e-12, minCharge=0.0, noiseThreshold=4., checkplot=true, extra=false)
+        end
         pars = (sign=sign, 
+                dt = dt_seconds,
                 minDuration=zcpars.minDuration, 
                 minPeak=zcpars.minPeak, 
                 minCharge=zcpars.minCharge, 
                 noiseThreshold=zcpars.noiseThreshold,
-                dt = dt_seconds,
-                extra=false,
+                checkplot=zcpars.checkplot,
+                extra=zcpars.extra,
                 )
         thresh = 0.5 
     else
@@ -481,7 +612,7 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
         s = SharedArray{Float64,2}((nwave, n_traces))
         c = SharedArray{Float64,2}((nwave, n_traces))
         @time @threads for i = 1:n_traces
-                s[:,i], c[:, i] = method(idat[:,i], pars)
+            s[:,i], c[:, i] = method(idat[:,i], pars)
         end
     
     else
@@ -492,7 +623,7 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
             s[:,i], c[:, i] = method(idat[:,i], pars)
         end
     end
-    println("Detection complete")# draw the threshold line
+    println("Detection complete") # draw the threshold line
     thr = std(c) * thresh  # all traces go into the threshold
     # println("thr: ", thr, " ", thresh)
 
@@ -500,44 +631,50 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
         println(" Event identification, parallel")
         evx = SharedArray{Int64, 2}((nwave, n_traces))  # event onsets
         pksx = SharedArray{Int64, 2}((nwave, n_traces))  # event peaks
-        npks = SharedArray{Int64, 1}((n_traces))
+        ev_endx = SharedArray{Int64, 2}((nwave, n_traces))  # event peaks
+        nppks = SharedArray{Int64, 1}((n_traces))
         @time @threads for i = 1:n_traces
-            eva, pksa = identify_events(idat[:, i], c[:, i], thr,  dt_seconds, sign)
-            npks[i] = size(eva)[1]
-            evx[1:npks[i], i] = eva
-            pksx[1:npks[i], i] = pksa
+            eva, pksa, evenda = identify_events(idat[:, i], c[:, i], thr,  dt_seconds, sign)
+            nppks[i] = size(eva)[1]
+            if nppks[i] > 0
+                evx[1:nppks[i], i] = eva
+                pksx[1:nppks[i], i] = pksa
+                ev_endx[1:nppks[i], i] = evenda
+            end
         end
         ev = Array{Array{Int64}}(undef, (n_traces))  # event onsets
         pks = Array{Array{Int64}}(undef, (n_traces))  # event peaks
+        ev_end = Array{Array{Int64}}(undef, (n_traces))  # event peaks
+        npks = Array{Int64}(undef, (n_traces))
         for i = 1:n_traces
-            ev[i] = evx[1:npks[i], i]
-            pks[i] = pksx[1:npks[i], i]
+            npks[i] = nppks[i]
+            if npks[i] > 0
+                ev[i] = evx[1:npks[i], i]
+                pks[i] = pksx[1:npks[i], i]
+                ev_end[i] = ev_endx[1:npks[i], i]
+            end
         end
         
     else
         println(" Event identification, serial")
         ev = Array{Array{Int64}}(undef, (n_traces))  # event onsets
         pks = Array{Array{Int64}}(undef, (n_traces))  # event peaks
+        ev_end = Array{Array{Int64}}(undef, (n_traces))  # event peaks
+        npks = Array{Int64, 1}(undef, (n_traces))
         @time for i = 1:n_traces
-            ev[i], pks[i] = identify_events(idat[:, i], c[:, i], thr,  dt_seconds, sign)
-            # ev[i] = eva
- #            pks[i] = pksa
+            ev[i], pks[i], ev_end[i] = identify_events(idat[:, i], c[:, i], thr, dt_seconds, sign)
+            npks[i] - size(ev[i])[1]
         end
     end
+
+    return s, c, npks, ev, pks, ev_end, thr
     
-    # method2 = zero_crossings
-    # s = Array{Float64,2}(undef, (nwave, n_traces))
-    # c = Array{Float64,2}(undef, (nwave, n_traces))
-    # ev_index = Array{Int64,2}(undef, (nwave, n_traces))
-    # ev_amp = Array{Float64,2}(undef, (nwave, n_traces))
-    # ev_sum = Array{Float64,2}(undef, (nwave, n_traces))
-    # ev_peak_index = Array{Int64,2}(undef, (nwave, n_traces))
-    # ev_dur = Array{Int64,2}(undef, (nwave, n_traces))
-    # pars.extra=true
-    # @time for i = 1:n_traces
-    #     s[:,i], c[:, i], ev_index[i,:], ev_amp[i,:], ev_sum[i,:], ev_peak_index[i,:], ev_dur[i,:] = method2(idat[:,i], pars)
-    # end
-    #
+end
+
+function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, sign)
+    nwave = size(idat)[1]
+    N_tests = size(idat)[2]
+    
     thrline = [thr, thr]
     thrx = [0, maximum(t_psc[1:nwave, 1])]
     p1  = ""
@@ -545,7 +682,14 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
     p3 = ""
     p4 = ""
     p5 = ""
+    dt_seconds = mean(diff(t_psc[:,1]))
+    evamps = Vector{Float64}()
+    evdurs = Vector{Float64}()
+    evlats = Vector{Float64}()
     for i = 1:N_tests
+        if npks[i] == 0
+            continue
+        end
         if i == 1
             p1 = plot(
                 t_psc[:, i],
@@ -569,26 +713,44 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
                 # legend = false,
             )
         end
+        # plot onsets of events
         p1 = plot!(
             p1, t_psc[ev[i], i],
             idat[ev[i], i],
             seriestype = :scatter,
             markercolor = "yellow",
+            markerstrokecolor = "black",
+            markerstrokewidth = 0.1,
             markersize = 2.5,
         )
-
+        # plot peaks of events
         p1 = plot!(
             p1, t_psc[pks[i], i],
             idat[pks[i], i],
             seriestype = :scatter,
             markercolor = "red",
+            markerstrokecolor = "red",
+            markerstrokewidth = 0.1,
             markersize = 2.5,
         )
+        # plot end of events
+        p1 = plot!(
+            p1, t_psc[ev_end[i], i],
+            idat[ev_end[i], i],
+            seriestype = :scatter,
+            markercolor = "blue",
+            markerstrokecolor = "blue",
+            markerstrokewidth = 0.1,
+            markersize = 2.5,
+        )
+
+        # plot scale value returned
         if i == 1
             p2 = plot(
             t_psc[1:size(s)[1], i],
             s[:, i],
             linecolor = "cyan",
+            linewidth = 0.3,
             title = "Scale",
             titlefontsize = 10,
             legend = false,
@@ -598,16 +760,20 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
             p2, t_psc[1:size(s)[1], i],
             s[:, i],
             linecolor = "cyan",
+            linewidth = 0.3,
             title = "Scale",
             titlefontsize = 10,
             legend = false,
             )
         end
+
+        # plot criteria value (used for thresholding) returned
         if i == 1
             p3 = plot(
                 t_psc[1:size(c)[1], i],
                 c[:, i],
                 #linecolor = "red",
+                linewidth = 0.3,
                 palette = :Dark2_5,
                 title = "Criteria",
                 titlefontsize = 10,
@@ -619,6 +785,7 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
                 p3, t_psc[1:size(c)[1], i],
                 c[:, i],
                 #linecolor = "red",
+                linewidth = 0.3,
                 palette = :Dark2_5,
                 title = "Criteria",
                 titlefontsize = 10,
@@ -627,44 +794,59 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
             p3 = plot!(p3, thrx, thrline, linecolor = "green", legend = false)
         end
         if i == 1
-            p4 = plot(
+            if template != nothing
+                p4 = plot(
                 t_psc[1:size(template)[1]],
                 template,
                 linecolor = "blue",
-                title = "Template",
-                titlefontsize = 10,
-                legend = false,
-            )
-        else
-            p4 = plot!(p4,
-                t_psc[1:size(template)[1]],
-                template,
-                linecolor = "blue",
+                linewidth = 0.3,
                 title = "Template",
                 titlefontsize = 10,
                 legend = false,
             )
         end
-        if i == 1
-            p5 = plot(
-                t_psc[1:size(template)[1]],
-                template,
-                linecolor = "blue",
-                title = "Amp vs. Width",
-                titlefontsize = 10,
-                legend = false,
-            )
         else
-            p5 = plot!(p5,
+            if template != nothing
+                p4 = plot!(p4,
                 t_psc[1:size(template)[1]],
                 template,
                 linecolor = "blue",
-                title = "Amp vs. Width",
+                linewidth = 0.3,
+                title = "Template",
                 titlefontsize = 10,
                 legend = false,
             )
         end
+        end
+        append!(evamps, idat[pks[i], i] .* sign .* 1e12)
+        append!(evdurs, (ev_end[i].-ev[i]).* dt_seconds .* 1e3)
+        evl = t_psc[ev[i], i]
+        # append!(evlats, t_psc[ev[i], i])
+        # if i == 1
+        #     p5 = plot(
+        #         t_psc[1:size(template)[1]],
+        #         template,
+        #         linecolor = "blue",
+        #         linewidth = 0.3,
+        #         title = "Amp vs. Width",
+        #         titlefontsize = 10,
+        #         legend = false,
+        #     )
+        # else
+        #     p5 = plot!(p5,
+        #         t_psc[1:size(template)[1]],
+        #         template,
+        #         linecolor = "blue",
+        #         linewidth = 0.3,
+        #         title = "Amp vs. Width",
+        #         titlefontsize = 10,
+        #         legend = false,
+        #     )
+        # end
     end
+
+    hp = compare_plots(evdurs, evamps; labx = "Durs", laby = "Amps", binsx=25, binsy=25)
+
     title = plot(
         title = @sprintf("%s Test", mode),
         grid = false,
@@ -673,20 +855,47 @@ function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1, tau2=3,
         xticks = false,
         bottom_margin = -50Plots.px,
     )
-    l = @layout([a{0.1h}; b; c; d; e f])
-    plot(
+    if template != nothing
+        l = @layout([a{0.1h}; b{0.25h}; c{0.1h}; d{0.1h}; e [f1{0.75w, 0.15h}; f2{1.0w, 0.8h} f3{1h, 0.15w}]])
+        plot(
+            title,
+            p1,
+            p2,
+            p3,
+            p4,
+            hp.mx, hp.scatter, hp.my,
+            layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
+        ) #, 0.30, 0.30]))
+
+    else
+        l = @layout([a{0.1h}; b{0.25h}; c{0.1h}; d{0.1h}; [f1{0.75w, 0.15h}; f2{1.0w, 0.8h} f3{1h, 0.15w}]] )
+        plot(
         title,
         p1,
         p2,
         p3,
-        p4,
-        p5,
-        # layout = l,
+        hp.mx, hp.scatter, hp.my,
         layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
-    ) #, 0.30, 0.30]))
-    plot!(size = (600, 600))
+        ) #, 0.30, 0.30]))
+    end
+
+    u = plot!(size = (600, 600))
+    return u
     # Plots.savefig("CB_test.pdf")
 end
 
+
+function testdetector(mode="CB";parallel=false, N=1, thresh=3.0, tau1=1*1e-3, tau2=3*1e-3, sign=1, zcpars = ())
+    if zcpars == ()
+        zcpars=(minDuration=0.0, minPeak=5e-12, minCharge=0.0, noiseThreshold=4., checkplot=false, extra=false)
+    end
+    N_tests = N
+    t_psc, idat, dt_seconds, template = make_test_waveforms(N=N_tests, taus=[tau1, tau2], sign=sign)
+    s, c, npks, ev, pks, ev_end, thr = detect_events(mode, idat, dt_seconds,
+        parallel = parallel, thresh=thresh, tau1=tau1, tau2=tau2, sign=sign, zcpars=zcpars)
+    # u = plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, sign)
+    u = plot_event_distributions(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, sign)
+    # savefig("mini_events.pdf")
+end
 
 end
