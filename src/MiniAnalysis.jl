@@ -15,6 +15,7 @@ using SharedArrays  # important for parallel/looping
 using Base.Threads
 using FFTW
 using ForwardDiff
+using DataFrames
 # using OnlineStats
 #using BenchmarkTools  Throws error in package
 
@@ -26,7 +27,8 @@ pyplot()
 # externally visible routines:
 
 export testdetector, testtemplate, make_test_waveforms
-export detect_events
+export detect_events, label_events, plot_event_distributions
+export unpack_events, events_to_dataframe
 
 function clements_bekkers(data::Array{Float64, 1}, pars::NamedTuple{(:t, :dt), Tuple{Vector{Float64}, Float64}}) # template::Array{Float64, 1}, tau, dt)
     # , data2::Array{Float64, 1}, u::Array{Int64, 1}, sse, scale, offset, detcrit)
@@ -202,73 +204,138 @@ function plot_measures(x, data, crosses, events; labx="", laby="")
     show()
 end
 
-function plot_event_distributions(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, sign; data_info=nothing)
+struct Event
+    indices::Tuple{Int64, Int64}
+    latency::Float64
+    amplitude::Float64
+    risetime::Float64
+    duration::Float64
+    falltime::Float64
+    class::String
+end
 
-    dt_seconds = mean(diff(tdat[:,1]))
-    evamps = Vector{Float64}()
-    evdurs = Vector{Float64}()
-    evrts = Vector{Float64}()
-    evlats = Vector{Float64}()
-    # get the light flash times from the data_info
-    if data_info != nothing
-        wv = data_info["Laser.wavefunction"]
-        u = split(wv, "\n")
-        stim_lats = Vector{Float64}()
-        re_float = r"[+-]?\d+\.?\d*"
-        for i = 1:size(u)[1]
-            s = match(re_float, u[i])
-            append!(stim_lats, parse(Float64, s.match)*1e3)
-        end
+struct Events
+    label::String
+    events::Vector{Event}
+end
+
+function unpack_events(d)
+    # unpack d from evts and return parallel arrays
+    n = size(d.events)[1]
+    amp = Vector{Float64}(undef, n)
+    lat = Vector{Float64}(undef, n)
+    dur = Vector{Float64}(undef, n)
+    rt = Vector{Float64}(undef, n)
+    ft = Vector{Float64}(undef, n)
+    rfratio = Vector{Float64}(undef, n)
+    class = Vector{String}(undef, n)
+    for i = 1:n
+        amp[i] = d.events[i].amplitude
+        lat[i] = d.events[i].latency
+        dur[i] = d.events[i].duration
+        rt[i] = d.events[i].risetime
+        rfratio[i] = rt[i]/d.events[i].falltime
+        class[i] = d.events[i].class
+    end
+    return n, amp, lat, dur, rt, ft, rfratio, class
+end
+
+function events_to_dataframe(d)
+    # unpack d and reformat as a DataFrame
+    n, amp, lat, dur, rt, ft, rfratio, class = unpack_events(d)
+    df = DataFrame(amp=amp, lat=lat, dur=dur, rt=rt, rfratio=rfratio, class=class)
+    return n, df
+end
+
+function label_events(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, sign; data_info=nothing, 
+    response_window = 25.0)
+    if data_info == nothing
+        return nothing
     end
 
-    response_window = 25.0 # now in msec
+    evts = Events("My wonderful Events", Vector{Event}())
+    dt_seconds = mean(diff(tdat[:,1]))
+
+    # get the light flash times from the data_info
+    wv = data_info["Laser.wavefunction"]
+    u = split(wv, "\n")
+    stim_lats = Vector{Float64}()
+    re_float = r"[+-]?\d+\.?\d*"
+    for i = 1:size(u)[1]
+        s = match(re_float, u[i])
+        append!(stim_lats, parse(Float64, s.match)*1e3)
+    end
+    # println("Stimlats: ", stim_lats)
     for i = 1:size(idat)[2]
         if npks[i] == 0
             continue
         else
-            append!(evamps, idat[pks[i], i] .* sign .* 1e12)
-            append!(evdurs, (ev_end[i].-ev[i]).* dt_seconds .* 1e3)
-            append!(evrts, (pks[i].-ev[i]).*dt_seconds .* 1e3)
-            if data_info != nothing
-                evtsi = tdat[ev[i], i]*1e3
-                for j = 1:size(stim_lats)[1]
-                    u = findall((evtsi .> stim_lats[j]) .& (evtsi .<= (stim_lats[j]+response_window)))
-                    println("u: ", u, evtsi)
-                    println("   lats: ", stim_lats[j])
-                    append!(evlats, evtsi[u].-stim_lats[j])
+            for j = 1:npks[i]
+                index = (j, i)
+                amp = idat[pks[i][j], i] .* sign .* 1e12
+                rt = (pks[i][j].-ev[i][j]).*dt_seconds .* 1e3
+                dur = (ev_end[i][j].-ev[i][j]).* dt_seconds .* 1e3
+                ft = (ev_end[i][j] .- pks[i][j]).*dt_seconds .* 1e3
+                evlat = tdat[ev[i][j]]*1e3  # absolute latency of this event
+                lat = -1.0
+                
+                class = "spontaneous"
+                # check to see if event falls into an evoked window
+                for k = 1:size(stim_lats)[1]
+                    if (evlat .> stim_lats[k]) .& (evlat .<= (stim_lats[k]+response_window))
+                        lat = evlat - stim_lats[k]  # this should only happen once... 
+                        # println("set evoked: ", i, " ", j, " ", lat)
+                        class = "evoked"
+                        break
+                    end
                 end
-            else
-                append!(evlats, tdat[ev[i], i]*1e3)
+                if (lat > 0) & (lat <= 3.0) & (dur > 10.) & (class == "evoked")
+                    # println("Set direct: ", lat, " ", dur)
+                    class = "direct"
+                end
+                if (amp < 3.0) | (dur < 0.5)
+                    # println("Reset to noise: ", i, " ", j, " ", amp, " ", dur)
+                    class = "noise"
+                end
+                # println("lat: ", lat, " amp: ", amp, " dur: ", dur, " class: ", class)
+                e = Event(index, lat, amp, rt, dur, ft, class)
+                push!(evts.events, e)
             end
         end
     end
+    return evts
+end
+
+
+function plot_event_distributions(df; response_window=25.0)
+    # d is the dataframe (from events to dataframe)
     binsx = 50
-    p_amp = plot(evamps, seriestype = :histogram, bins=binsx,
+    p_amp = plot(df.amp, seriestype = :histogram, bins=binsx,
         orientation = :v, 
         framestyle = :semi,
-        xlim = [0, maximum(evamps)], 
+        xlim = [0, maximum(df.amp)], 
         xlabel="Amplitude (pA)",
         ylabel = "# obs",
         )
-    p_dur = plot(evdurs, seriestype = :histogram, bins=binsx,
+    p_dur = plot(df.dur, seriestype = :histogram, bins=binsx,
         orientation = :v, 
         framestyle = :semi,
-        xlim = [0, maximum(evdurs)], xlabel="Durations (ms)",
+        xlim = [0, maximum(df.dur)], xlabel="Durations (ms)",
         ylabel = "# obs",
         )
-    p_rt = plot(evrts, seriestype = :histogram, bins=binsx,
+    p_rt = plot(df.rt, seriestype = :histogram, bins=binsx,
         orientation = :v, 
         framestyle = :semi,
-        xlim = [0, maximum(evrts)], xlabel="Rise Times (ms)",
+        xlim = [0, maximum(df.rt)], xlabel="Rise Times (ms)",
         ylabel = "# obs",
         )
-    p_lat = plot(evlats, seriestype = :histogram, bins=binsx,
+    p_lat = plot(df.lat[df.lat .>= 0.], seriestype = :histogram, bins=binsx,
         orientation = :v, 
         framestyle = :semi,
         xlim = [0, response_window], xlabel="Latencies (ms)",
         ylabel = "# obs",
         )
-    l = @layout[a b; c d]
+    l = @layout[a b; c d] # ; e f]
     u = plot(p_amp, p_dur, p_rt, p_lat, layout=l)
     return u
 end
