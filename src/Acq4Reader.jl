@@ -3,7 +3,13 @@ using Statistics
 using HDF5
 using Plots
 using Printf
+using Base.Threads
+using ArraysOfArrays
+using ElasticArrays
 
+using Distributed
+using SharedArrays  # important for parallel/looping
+# using ProgressMeter
 using InteractiveUtils
 
 using PyCall
@@ -22,9 +28,7 @@ end
 
 greeter()
 
-device = "MultiClamp1.ma"
-laser_device = "Laser-Blue-raw.ma"
-photodiode_device = "Photodiode.ma"
+
 
 # filename = "/Volumes/Pegasus_002/Additional_Kasten/2020.02.24_000/slice_001/cell_000/fast_IO_CC_001/"
 # filename = "/Volumes/Pegasus_002/Additional_Kasten/2020.02.24_000/slice_000/cell_000/fast_IO_001/"
@@ -37,6 +41,7 @@ function get_subdirs(base_dir)
     # only return those that are protocol sweeps
     subdirs = readdir(base_dir)
     deleteat!(subdirs, subdirs .== ".index")
+    deleteat!(subdirs, subdirs .== ".DS_Store")
     return subdirs
 end
 #
@@ -48,28 +53,39 @@ function read_hdf5(filename)
     treating it as an HDF5 file (which it is)
         
     Return the data, and some "standard" y limits.
+    New parallel version, 5/24/2021 pbm
     =#
+    device = "MultiClamp1.ma"
+    laser_device = "Laser-Blue-raw.ma"
+    photodiode_device = "Photodiode.ma"
+    
     sweeps = get_subdirs(filename)
     idat = Array{Float64}(undef)
     vdat = Array{Float64}(undef)
     tdat = Array{Float64}(undef)
+    nsweeps = size(sweeps)[1]
+    println("Nsweeps: ", nsweeps)
+    # temporary allocation so we don't lose scope on arrays
+    nwave = 1
+    s_idat = SharedArray{Float64,2}((nwave, nsweeps))
+    s_vdat = SharedArray{Float64,2}((nwave, nsweeps))
+    s_tdat = SharedArray{Float64,2}((nwave, nsweeps))
+    
     first = true
     mode = ""
     clampstate = ""
     data_info = ""
-    @time for s in sweeps
-        time, data, data_info = read_one_sweep(filename, s, device)
+    println("Number of threads avail: ", Threads.nthreads())
+    # note we wet this up for threading, but that causes memory errors...
+    # kept same structure here though.
+    @time  for s = 1:nsweeps
+        sweep = sweeps[s]
+        time, data, data_info = read_one_sweep(filename, sweep, device)
         if time == false
             continue
         end
         sweep_mode = String(data_info["clampstate"]["mode"])  # will be VC, IC or IC=0 (may depend on age of acquisition code)
-        indx1, indx2 = get_indices(data_info)
-
         if first
-            first = false
-            tdat = time
-            idat = data[:, indx1]
-            vdat = data[:, indx2]
             mode = sweep_mode
         else
             if mode != sweep_mode
@@ -83,18 +99,39 @@ function read_hdf5(filename)
                     ),
                 )
             end
-            tdat = hcat(tdat, time)
-            idat = hcat(idat, data[:, indx1])
-            vdat = hcat(vdat, data[:, indx2])
         end
+        
+        indx1, indx2 = get_indices(data_info)
+
+        if first  # we don't know allocation size until first run
+            nwave = size(data)[1]
+            s_idat = SharedArray{Float64,2}((nwave, nsweeps))
+            s_vdat = SharedArray{Float64,2}((nwave, nsweeps))
+            s_tdat = SharedArray{Float64,2}((nwave, nsweeps))
+            first = false
+            # s_tdat[:,s] = time
+            # s_idat[:,s] = data[:, indx1]
+            # s_vdat[:,s] = data[:, indx2]
+        end
+        s_tdat[:,s] = time
+        s_idat[:,s] = data[:, indx1]
+        s_vdat[:,s] = data[:, indx2]
+        # println("s: ", s)
     end
     if mode == ""
         throw(ErrorException("No acquisition mode found"))
     end
-
+    println("placing in local arrays")
+    idat = s_idat
+    tdat = s_tdat
+    vdat = s_vdat
     indexfile = joinpath(filename, ".index")
     cf = pgc.readConfigFile(indexfile)
-    wavefunction = cf["."]["devices"]["Laser-Blue-raw"]["channels"]["pCell"]["waveGeneratorWidget"]["function"]
+    if haskey(cf["."]["devices"], "Laser-Blue-raw")
+        wavefunction = cf["."]["devices"]["Laser-Blue-raw"]["channels"]["pCell"]["waveGeneratorWidget"]["function"]
+    else
+        wavefunction = nothing
+    end
     data_info["Laser.wavefunction"] = wavefunction
     
     println("Protocol reading finished.")
@@ -162,7 +199,8 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
     full_filename = joinpath(filename, sweep_dir, device)
     okfile = isfile(full_filename)
     if !okfile
-        println("File not found!!!!!")
+        println("File not found")
+        println(full_filename)
         return false, false, false
     end
     tf = HDF5.ishdf5(full_filename)
@@ -193,6 +231,10 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
     close(fid)
 
     return time, data, data_info
+end
+
+function test_reader()
+    read_hdf5(filename)
 end
 
 
