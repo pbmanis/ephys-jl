@@ -1,10 +1,12 @@
 module LSPSPlotting
 using Base
+import DataFrames: DataFrame, describe, select, Not
 using Statistics
 using Printf
 # ENV["MPLBACKEND"] = "MacOSX"
 using Plots
 pyplot()
+include("MiniAnalysis.jl")
 
 export plot_one_trace, stack_plot
 export plot_event_distribution
@@ -43,7 +45,7 @@ function plot_event_distributions(df; response_window=25.0)
 end
 
 
-function plot_one_trace(i, p_I, tdat, idat, npks, peaks, offset, tmax, ylims, lc, lw)
+function plot_one_trace(i, p_I, tdat, idat, eventdf, offset, sign, ylims, lc, lw)
     #=
     Plot one trace, including the markers on the peaks of identified events.
     Used by stack_plot
@@ -51,15 +53,15 @@ function plot_one_trace(i, p_I, tdat, idat, npks, peaks, offset, tmax, ylims, lc
     p_I : the plotting object (created when i = 1, and returned)
     tdat : 1D array of time
     idat : 1D array of current
-    pks : 1D array of indices to the peaks of detected events
+    events: The event structure, but with only those events in this trace selected
     offset : 1D array (trials) of offsets for the traces
     tmax, top_lims : plotting parameters
     lc, lw : line color and line width for this trace (set by
     the calling routine based on some criteria, such as ZScore).
     =#
 
+    tmax = maximum(tdat)
     if i == 1
-        tmax = maximum(tdat)
         p_I = plot(
             tdat,
             idat .- offset[i],
@@ -82,23 +84,52 @@ function plot_one_trace(i, p_I, tdat, idat, npks, peaks, offset, tmax, ylims, lc
             legend=false,
         )
     end
-    if npks > 0
-        p_I = plot!(
+    evk = filter(r -> any(occursin.(["evoked"], r.class)), eventdf) # eventdf[in("evoked").(eventdf.class), :]
+    pkt = evk[(evk.peaktime .< tmax*1e3), :peaktime]
+    amp = sign .* evk[(evk.peaktime .< tmax*1e3), :amp]
+    p_I = plot!(
         p_I,
-        tdat[peaks],
-        idat[peaks] .- offset[i],
+        pkt .* 1e-3,
+        (amp .* 1e-12) .- offset[i],
         seriestype = :scatter,
-        markercolor = :red,
-        markerstrokecolor = :red,
+        markercolor = :green,
+        markerstrokecolor = :green,
         markerstrokewidth = 0.5,
-        markersize = 2,
+        markersize = 3,
         legend=false,
     )
-    end
+    evk = filter(r -> any(occursin.(["direct"], r.class)), eventdf) # eventdf[in("evoked").(eventdf.class), :]
+    pkt = evk[(evk.peaktime .< tmax*1e3), :peaktime]
+    amp = sign .* evk[(evk.peaktime .< tmax*1e3), :amp]
+    p_I = plot!(
+        p_I,
+        pkt .* 1e-3,
+        (amp .* 1e-12) .- offset[i],
+        seriestype = :scatter,
+        markercolor = :orange,
+        markerstrokecolor = :orange,
+        markerstrokewidth = 0.5,
+        markersize = 4,
+        legend=false,
+    )
+    evk = filter(r -> any(occursin.(["spontaneous"], r.class)), eventdf) # eventdf[in("evoked").(eventdf.class), :]
+    pkt = evk[(evk.peaktime .< tmax*1e3), :peaktime]
+    amp = sign .* evk[(evk.peaktime .< tmax*1e3), :amp]
+    p_I = plot!(
+        p_I,
+        pkt .* 1e-3,
+        (amp .* 1e-12) .- offset[i],
+        seriestype = :scatter,
+        markercolor = :cyan,
+        markerstrokecolor = :cyan,
+        markerstrokewidth = 0.5,
+        markersize = 3,
+        legend=false,
+    )
     return p_I
 end
 
-function stack_plot(tdat, idat, data_info, npks, events, peaks, above_zthr; mode="Undef", saveflag = false)
+function stack_plot(tdat, idat, data_info, sign, events, above_zthr; mode="Undef", saveflag = false)
     #=
     Make a stacked set of plots
     tdat : 2D array of (time x trial)
@@ -110,9 +141,9 @@ function stack_plot(tdat, idat, data_info, npks, events, peaks, above_zthr; mode
     =#
     
     println("Plotting stacs of traces")
-    vspc = 50e-12
-    twin = [0.0, 1.0]
-    tmax = maximum(twin)
+    vspc = 50*1e-12
+    twin = [0.0, 1.0] 
+    tmax = maximum(twin)*1e3 # express in msec
     ipts = findall((tdat[:, 1] .>= twin[1]) .& (tdat[:, 1] .< twin[2]))
     maxpts = maximum(ipts)
 
@@ -141,7 +172,7 @@ function stack_plot(tdat, idat, data_info, npks, events, peaks, above_zthr; mode
     bot_lims = minimum(offset)
     ylilms = [bot_lims, top_lims]
     # establish first trace
-
+    n, df = MiniAnalysis.events_to_dataframe(events)
     i = 1
     lc = "black"
     lw = 0.3
@@ -150,9 +181,8 @@ function stack_plot(tdat, idat, data_info, npks, events, peaks, above_zthr; mode
         lw = 0.7
     end
 
-    pks = peaks[i][findall(peaks[i] .< maxpts)]
     p_I = ""
-    p_I = plot_one_trace(i, p_I, tdat[ipts,i], idat[ipts,i], npks[i], pks, offset, tmax, ylims, lc, lw)
+    p_I = plot_one_trace(i, p_I, tdat[ipts,i], idat[ipts,i], df[in([1]).(df.trace), :], offset,  sign, ylims, lc, lw)
     # now do the rest of the traces
     @timed  for i = 2:ntraces
         lc = "black"
@@ -161,12 +191,7 @@ function stack_plot(tdat, idat, data_info, npks, events, peaks, above_zthr; mode
             lc = "red"
             lw = 0.7
         end
-        if npks[i] > 0
-            pks = peaks[i][findall(peaks[i] .< maxpts)]
-        else
-            pks = []
-        end
-        p_I = plot_one_trace(i, p_I, tdat[ipts,i], idat[ipts,i], npks[i], pks, offset, tmax, ylims, lc, lw)
+        p_I = plot_one_trace(i, p_I, tdat[ipts,i], idat[ipts,i], df[in([i]).(df.trace), :], offset, sign, ylims, lc, lw)
     end
     avg = mean(idat[ipts, above_zthr], dims = 2)
     rawavg = mean(idat[ipts, :], dims = 2)
@@ -189,7 +214,7 @@ function stack_plot(tdat, idat, data_info, npks, events, peaks, above_zthr; mode
     ) #, 0.30, 0.30]))
     plot!(PX, size = (600, 800), show=true)
     # if saveflag
-        save("LSPS_test.pdf")
+        savefig("LSPS_test.pdf")
     # else
     show()
     # end

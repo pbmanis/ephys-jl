@@ -167,13 +167,14 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode="AJ")
         parallel = true, thresh=3, tau1=1e-3, tau2=3e-3, sign=sign, zcpars=zcpars)
     template=nothing
     println("labeling events")
-    @time evts = MiniAnalysis.label_events(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, sign, data_info=data_info)
+    @time events = MiniAnalysis.label_events(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, sign, data_info=data_info)
+    print("No. events: ", size(events.events)[1])
     println("Plotting distributions")
-    n, df = MiniAnalysis.events_to_dataframe(evts)  # we lose trace info here, but file for LDA etc.
+    n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
     @time u = LSPSPlotting.plot_event_distributions(df)  # distributions don't care about trace
     # savefig(u, "mini_event_distributions.pdf")
     saveflag = false
-    PX = LSPSPlotting.stack_plot(tdat, idat, data_info, npks, ev, pks, above_zthr, mode=mode)
+    PX = LSPSPlotting.stack_plot(tdat, idat, data_info, sign, events, above_zthr, mode=mode)
     # savefig(PX, "test.pdf")
     return u
 end

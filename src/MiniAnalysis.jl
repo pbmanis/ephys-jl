@@ -206,8 +206,11 @@ end
 
 struct Event
     indices::Tuple{Int64, Int64}
+    trace::Int64
+    eventno::Int64
     latency::Float64
     amplitude::Float64
+    peaktime::Float64
     risetime::Float64
     duration::Float64
     falltime::Float64
@@ -222,7 +225,10 @@ end
 function unpack_events(d)
     # unpack d from evts and return parallel arrays
     n = size(d.events)[1]
+    trace = Vector{Int64}(undef, n)
+    eventno = Vector{Int64}(undef, n)
     amp = Vector{Float64}(undef, n)
+    peakt = Vector{Float64}(undef, n)
     lat = Vector{Float64}(undef, n)
     dur = Vector{Float64}(undef, n)
     rt = Vector{Float64}(undef, n)
@@ -230,20 +236,24 @@ function unpack_events(d)
     rfratio = Vector{Float64}(undef, n)
     class = Vector{String}(undef, n)
     for i = 1:n
+        trace[i] = d.events[i].trace
+        eventno[i] = d.events[i].eventno
         amp[i] = d.events[i].amplitude
+        peakt[i] = d.events[i].peaktime
         lat[i] = d.events[i].latency
         dur[i] = d.events[i].duration
         rt[i] = d.events[i].risetime
         rfratio[i] = rt[i]/d.events[i].falltime
         class[i] = d.events[i].class
     end
-    return n, amp, lat, dur, rt, ft, rfratio, class
+    return n, trace, eventno, amp, peakt, lat, dur, rt, ft, rfratio, class
 end
 
 function events_to_dataframe(d)
     # unpack d and reformat as a DataFrame
-    n, amp, lat, dur, rt, ft, rfratio, class = unpack_events(d)
-    df = DataFrame(amp=amp, lat=lat, dur=dur, rt=rt, rfratio=rfratio, class=class)
+    n, trace, eventno, amp, peakt, lat, dur, rt, ft, rfratio, class = unpack_events(d)
+    df = DataFrame(trace=trace, eventno=eventno, amp=amp, peaktime=peakt,
+        lat=lat, dur=dur, rt=rt, rfratio=rfratio, class=class)
     return n, df
 end
 
@@ -277,6 +287,7 @@ function label_events(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, si
                 dur = (ev_end[i][j].-ev[i][j]).* dt_seconds .* 1e3
                 ft = (ev_end[i][j] .- pks[i][j]).*dt_seconds .* 1e3
                 evlat = tdat[ev[i][j]]*1e3  # absolute latency of this event
+                peakt = tdat[pks[i][j], i] .* 1e3
                 lat = -1.0
                 
                 class = "spontaneous"
@@ -298,7 +309,7 @@ function label_events(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, si
                     class = "noise"
                 end
                 # println("lat: ", lat, " amp: ", amp, " dur: ", dur, " class: ", class)
-                e = Event(index, lat, amp, rt, dur, ft, class)
+                e = Event(index, i, j, lat, amp, peakt, rt, dur, ft, class)
                 push!(evts.events, e)
             end
         end
