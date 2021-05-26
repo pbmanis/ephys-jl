@@ -24,18 +24,25 @@ function events_to_dataframe(d)
         lat[i] = d.events[i].latency
         dur[i] = d.events[i].duration
         rt[i] = d.events[i].risetime
-        rfratio[i] = rt[i]/d.events[i].falltime
+        rfratio[i] = rt[i] / d.events[i].falltime
         class[i] = d.events[i].class
     end
-    df = DataFrame(amp=amp, lat=lat, dur=dur, rt=rt, rfratio=rfratio, class=class)
+    df = DataFrame(
+        amp = amp,
+        lat = lat,
+        dur = dur,
+        rt = rt,
+        rfratio = rfratio,
+        class = class,
+    )
     return n, df
 end
 
 function epsc_lda(d)
 
     # n, amp, lat, dur, rt, ft, rfratio, class = unpack_events(d)
-    n, df = events_to_dataframe(d) 
-    r3 = x -> round(x, sigdigits=3)
+    n, df = events_to_dataframe(d)
+    r3 = x -> round(x, sigdigits = 3)
 
     y = df.class
     X = select(df, Not(:class))
@@ -49,14 +56,14 @@ function epsc_lda(d)
     # yticks(fontsize=12)
     # ylabel("Number of occurences", fontsize=14)
 
-    train = 1:Int64(floor(n*0.5))
-    test = last(train)+1:n;
-    
+    train = 1:Int64(floor(n * 0.5))
+    test = last(train)+1:n
+
     """
     Logistic regression model ("not bad")
     """
     println("LOGISTIC REGRESSION")
-    @load LogisticClassifier pkg=MLJLinearModels
+    @load LogisticClassifier pkg = MLJLinearModels
     X2 = X # select(X) # , Not([:]))
     clf = machine(LogisticClassifier(), X2, y)
     fit!(clf)
@@ -72,26 +79,26 @@ function epsc_lda(d)
     """
     LDA on same data set
     """
-    @load BayesianLDA pkg=MultivariateStats
+    @load BayesianLDA pkg = MultivariateStats
 
     println("LDA with Bayesian")
     clf = machine(BayesianLDA(), X2, y)
-    fit!(clf, rows=train)
-    ŷ_lda= predict_mode(clf, rows=test)
+    fit!(clf, rows = train)
+    ŷ_lda = predict_mode(clf, rows = test)
 
     println("Accuracy: ", accuracy(ŷ_lda, y[test]) |> r3)
     cm = confusion_matrix(ŷ_lda, y[test])
     display("text/plain", cm)
-    
+
     """
     or: 
     """
-    @load LDA pkg=MultivariateStats    
+    @load LDA pkg = MultivariateStats
 
     println("LDA")
-    clf = machine(LDA(dist=Euclidean()), X2, y)  # CosineDist is; Euclidean seems to be better for accuracy
-    mach = fit!(clf, rows=train)
-    ŷ = predict_mode(clf, rows=test)
+    clf = machine(LDA(dist = Euclidean()), X2, y)  # CosineDist is; Euclidean seems to be better for accuracy
+    mach = fit!(clf, rows = train)
+    ŷ = predict_mode(clf, rows = test)
     println(ŷ[1:10])
     println(y[test[1:10]])
     println("Accuracy: ", accuracy(ŷ, y[test]) |> r3)
@@ -104,8 +111,8 @@ function epsc_lda(d)
     #and run predict on the new data
     # ynew\hat = predict(mach2, Xnew)
     # and then ynew\hat will have the estimators (classifiers) for the new data
-    
-    
+
+
     """
     Bayesian QDA from SciKit Learn
     """

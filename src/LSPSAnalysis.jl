@@ -9,9 +9,9 @@ using Base.Threads
 include("Acq4Reader.jl")
 include("MiniAnalysis.jl")
 include("EPSC_lda.jl")
-include("LSPSPlotting.jl") 
+include("LSPSPlotting.jl")
 
-export LSPS_read_and_plot
+export LSPS_read_and_plot, aone
 
 function ZScore(tdat, idat; baseline = [0, 0.1], score_win = [0.8, 0.85])
     ntraces = size(tdat)[2]
@@ -28,12 +28,12 @@ function LSPSAnalyzer(tdat, vdat, idat; timewindow = [0.1, 0.6])
 
 end
 
-function Sample_and_Hold(tdat, idat; twin = [0.055, 0.056])
+function sample_and_hold(tdat, idat; twin = [0.055, 0.056])
     #=
     Remove rapid transient artifacts from traces
     The data in twin in each trace in idat is replaced by the
     single data value in the point immediately preceding the window
-        
+            
     =#
 
     ipts = findall((tdat[:, 1] .>= twin[1]) .& (tdat[:, 1] .< twin[2]))
@@ -53,12 +53,12 @@ Remove linear trend from array `X` using least-squares regression.
 """
 function detrend!(X::AbstractArray{<:AbstractFloat})
     T = eltype(X)
-    N = size(X,1)
+    N = size(X, 1)
 
     # create linear trend matrix
-    A = similar(X,T,N,2)
-    A[:,2] .= T(1)
-    A[:,1] .= range(T(0),T(1),length=N)
+    A = similar(X, T, N, 2)
+    A[:, 2] .= T(1)
+    A[:, 1] .= range(T(0), T(1), length = N)
     # create linear trend matrix
     R = transpose(A) * A
 
@@ -72,24 +72,21 @@ function detrend!(X::AbstractArray{<:AbstractFloat})
     return nothing
 end
 detrend(A::AbstractArray{<:AbstractFloat}) = (U = deepcopy(A);
-        detrend!(U);return U)
-# detrend!(R::RawData) = detrend!(R.x)
-# detrend(R::RawData) = (U = deepcopy(R); detrend!(U.x); return U)
-# detrend!(C::CorrData) = detrend!(C.corr)
-# detrend(C::CorrData) = (U = deepcopy(C); detrend!(U.corr); return U)
-
+    detrend!(U);
+    return U)
 
 """
     demean!(A::AbstractArray{<:AbstractFloat})
 Remove mean from array `A`.
 """
-function demean!(A::AbstractArray{<:AbstractFloat}; dims=1)
-      μ = mean(A,dims=dims)
-      A .-= μ
-  return nothing
+function demean!(A::AbstractArray{<:AbstractFloat}; dims = 1)
+    μ = mean(A, dims = dims)
+    A .-= μ
+    return nothing
 end
-demean(A::AbstractArray{<:AbstractFloat}; dims=1) = (U = deepcopy(A);
-       demean!(U,dims=dims);return U)
+demean(A::AbstractArray{<:AbstractFloat}; dims = 1) = (U = deepcopy(A);
+demean!(U, dims = dims);
+return U)
 # demean!(R::RawData) = demean!(R.x)
 # demean(R::RawData) = (U = deepcopy(R); demean!(U.x); return U)
 # demean!(C::CorrData) = demean!(C.corr)
@@ -97,8 +94,47 @@ demean(A::AbstractArray{<:AbstractFloat}; dims=1) = (U = deepcopy(A);
 
 # ===========================
 
+function filter_data_notches(
+    tdat,
+    idat;
+    notchfreqs = [60.0],
+    Q = 20.0,
+    bw = 5.0,
+    QScale = true,
+)
+    #=
+    Digitally filter the data in idat with a sequence of notch filters
+    of specified q and sample frequency
+    Values are in Hz if tdat is in seconds.
+    Returns filtered idat
+    =#
+    fs = 1 / mean(diff(tdat[:, 1]))  # get fs in Hz
+    w0 = notchfreqs ./ (fs / 2.0)
+    # if QScale
+    #     bw = w0[0]/Q
+    #     Qf = (w0 ./ bw).^sqrt(2.0)
+    # else
+    #     Qf = Q .* ones(size(notchfreqs)[1])
+    # end
+    # println("Qf: ", Qf)
+    # println("w0: ", w0)
+    # println("bw: ", bw)
+    # bw = ones(size(notchfreqs)[1]) .* range(5, 20, length=length(notchfreqs)[1])
+    bw =
+        ones(size(notchfreqs)[1]) .*
+        exp10.(range(0.301, 1.301, length = length(notchfreqs)[1]))
 
-function Filter_Data(tdat, idat; lpf = 3000, hpf = 0)
+    for i = 1:size(notchfreqs)[1]
+        responsetype = Bandstop(notchfreqs[i] - bw[i], notchfreqs[i] + bw[i], fs = fs)
+        designmethod = Butterworth(16)
+        idat = filt(digitalfilter(responsetype, designmethod), idat)
+    end
+    return idat
+end
+
+
+
+function filter_data_bandpass(tdat, idat; lpf = 3000, hpf = 0)
     #=
     Digitally filter the data in dat with either a
     lowpass filter (lpf) or an hpf filter (hpf)
@@ -106,7 +142,6 @@ function Filter_Data(tdat, idat; lpf = 3000, hpf = 0)
     Returns filtered idat
     =#
     fs = 1 / mean(diff(tdat[:, 1]))  # get fs in Hz
-    println("Fs: ", fs)
     if hpf == 0
         responsetype = Lowpass(lpf; fs = fs)
     else
@@ -118,8 +153,7 @@ function Filter_Data(tdat, idat; lpf = 3000, hpf = 0)
 end
 
 
-
-function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode="AJ")
+function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ")
     #=
     Read an HDF5 file, do a little analysis on the data
         -- ivs and fitting
@@ -138,45 +172,89 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode="AJ")
         size(tdat)[2],
         maximum(tdat[:, 1])
     )
-    ntr =   size(tdat)[2] # 20
+    ntr = size(tdat)[2] # 20
     imax = Int64(maxt / dt_seconds)
     println("imax: ", imax)
 
     idat = idat[1:imax, 1:ntr]
     tdat = tdat[1:imax, 1:ntr]
-    
+
     println("Preparing data")
     demean!(idat)
     detrend!(idat)
-    idat = Sample_and_Hold(tdat, idat)
-    idat = Filter_Data(tdat, idat, lpf = 2500.0)
+    notchfreqs = [
+        60.0, #120.0, 180.0,
+        #240.0,
+        4000.0,
+    ]
+    idat = sample_and_hold(tdat, idat)
+    # idat = filter_data_notches(tdat, idat, notchfreqs=notchfreqs)
+    idat = filter_data_bandpass(tdat, idat, lpf = 2500.0)
     # calculate zscores
     sign = -1
     println("computing ZScores")
-    @time zs = ZScore(tdat, idat.*sign, baseline = [0, 0.1], score_win = [0.9, 0.93])
+    @time zs = ZScore(tdat, idat .* sign, baseline = [0, 0.1], score_win = [0.9, 0.93])
     println("    Max Z Score: ", maximum(zs), " of ", size(zs))
     above_zthr = findall(zs[1, :] .> 1.96)
     println("#     traces above z threshod: ", size(above_zthr), " ", above_zthr)
 
-    zcpars = (minDuration=5e-3, minPeak=5e-12, minCharge=0e-12, noiseThreshold=4.0, checkplot=false, extra=false)
+    zcpars = (
+        minDuration = 5e-3,
+        minPeak = 5e-12,
+        minCharge = 0e-12,
+        noiseThreshold = 4.0,
+        checkplot = false,
+        extra = false,
+    )
     # s, c, ev, pks, thr = MiniAnalysis.detect_events(mode, idat[:,1:ntr], dt_seconds,
     #         parallel=false, thresh=3.0, tau1=1*1e-3, tau2=3*1e-3, sign=-1,
     #         zcpars = zcpars)
     println("detecting events")
-    @time s, c, npks, ev, pks, ev_end, thr = MiniAnalysis.detect_events(mode, idat, dt_seconds,
-        parallel = true, thresh=3, tau1=1e-3, tau2=3e-3, sign=sign, zcpars=zcpars)
-    template=nothing
+    @time s, c, npks, ev, pks, ev_end, thr = MiniAnalysis.detect_events(
+        mode,
+        idat,
+        dt_seconds,
+        parallel = true,
+        thresh = 3,
+        tau1 = 1e-3,
+        tau2 = 3e-3,
+        sign = sign,
+        zcpars = zcpars,
+    )
+    template = nothing
     println("labeling events")
-    @time events = MiniAnalysis.label_events(tdat, idat, s, c, npks, ev, pks, ev_end, template, thr, sign, data_info=data_info)
+    @time events = MiniAnalysis.label_events(
+        tdat,
+        idat,
+        s,
+        c,
+        npks,
+        ev,
+        pks,
+        ev_end,
+        template,
+        thr,
+        sign,
+        data_info = data_info,
+    )
     print("No. events: ", size(events.events)[1])
     println("Plotting distributions")
     n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
     @time u = LSPSPlotting.plot_event_distributions(df)  # distributions don't care about trace
     # savefig(u, "mini_event_distributions.pdf")
     saveflag = false
-    PX = LSPSPlotting.stack_plot(tdat, idat, data_info, sign, events, above_zthr, mode=mode)
-    # savefig(PX, "test.pdf")
-    return u
+    print("idat: ", idat[1:10, 1])
+
+    PX = LSPSPlotting.stack_plot(
+        tdat,
+        idat,
+        data_info,
+        sign,
+        events,
+        above_zthr,
+        mode = mode,
+    )
+    return PX, u
 end
 
 end

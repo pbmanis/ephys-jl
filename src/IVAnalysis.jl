@@ -22,7 +22,7 @@ function compute_iv(tdat, vdat, idat; ss_win = [0.5, 0.6], pk_win = [0.1, 0.2])
     #=
     Compute the current-voltage relations of a data set over
     both the steady-state window and the peak wincow
-        
+            
     tdat, vdat and idate are the time, voltage and current traces 
         (dimensions are npoints, ntraces)
     ss_win is the steady-state window
@@ -54,7 +54,7 @@ function fit_iv(
     ilim : the min and max currents for fitting
     p00 : Initial values for the curve fit (DC, amplitude, 1/tau)
     iwin : the window over which the data will be fit
-        
+            
     =#
     # pts =  findall((tdat[:,1] .>= window[1]) .& (tdat[:,1] .< window[2]))
     ipts = findall((tdat[:, 1] .>= iwin[1]) .& (tdat[:, 1] .< iwin[2]))

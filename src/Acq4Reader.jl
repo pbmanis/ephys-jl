@@ -51,14 +51,14 @@ function read_hdf5(filename)
     #=
     Read the protocol data from the specified metaarray file,
     treating it as an HDF5 file (which it is)
-        
+            
     Return the data, and some "standard" y limits.
     New parallel version, 5/24/2021 pbm
     =#
     device = "MultiClamp1.ma"
     laser_device = "Laser-Blue-raw.ma"
     photodiode_device = "Photodiode.ma"
-    
+
     sweeps = get_subdirs(filename)
     idat = Array{Float64}(undef)
     vdat = Array{Float64}(undef)
@@ -70,7 +70,7 @@ function read_hdf5(filename)
     s_idat = SharedArray{Float64,2}((nwave, nsweeps))
     s_vdat = SharedArray{Float64,2}((nwave, nsweeps))
     s_tdat = SharedArray{Float64,2}((nwave, nsweeps))
-    
+
     first = true
     mode = ""
     clampstate = ""
@@ -78,7 +78,7 @@ function read_hdf5(filename)
     println("Number of threads avail: ", Threads.nthreads())
     # note we wet this up for threading, but that causes memory errors...
     # kept same structure here though.
-    @time  for s = 1:nsweeps
+    @time for s = 1:nsweeps
         sweep = sweeps[s]
         time, data, data_info = read_one_sweep(filename, sweep, device)
         if time == false
@@ -100,7 +100,7 @@ function read_hdf5(filename)
                 )
             end
         end
-        
+
         indx1, indx2 = get_indices(data_info)
 
         if first  # we don't know allocation size until first run
@@ -113,9 +113,9 @@ function read_hdf5(filename)
             # s_idat[:,s] = data[:, indx1]
             # s_vdat[:,s] = data[:, indx2]
         end
-        s_tdat[:,s] = time
-        s_idat[:,s] = data[:, indx1]
-        s_vdat[:,s] = data[:, indx2]
+        s_tdat[:, s] = time
+        s_idat[:, s] = data[:, indx1]
+        s_vdat[:, s] = data[:, indx2]
         # println("s: ", s)
     end
     if mode == ""
@@ -128,12 +128,13 @@ function read_hdf5(filename)
     indexfile = joinpath(filename, ".index")
     cf = pgc.readConfigFile(indexfile)
     if haskey(cf["."]["devices"], "Laser-Blue-raw")
-        wavefunction = cf["."]["devices"]["Laser-Blue-raw"]["channels"]["pCell"]["waveGeneratorWidget"]["function"]
+        wavefunction =
+            cf["."]["devices"]["Laser-Blue-raw"]["channels"]["pCell"]["waveGeneratorWidget"]["function"]
     else
         wavefunction = nothing
     end
     data_info["Laser.wavefunction"] = wavefunction
-    
+
     println("Protocol reading finished.")
     return tdat, idat, vdat, data_info
 end
@@ -217,15 +218,17 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
     DAQSecondary = h5readattr(full_filename, "info/2/DAQ/secondary")
     DAQCommand = h5readattr(full_filename, "info/2/DAQ/command")
 
-    data_info =
-        Dict("clampstate" => deepcopy(ClampState),
-            "c0" => c0, "c1" => c1, "c2" => c2,
-            "DAQ.Primary" =>deepcopy(DAQPrimary),
-            "DAQ.Secondary" =>deepcopy(DAQSecondary),
-            "DAQ.Command" =>deepcopy(DAQCommand),
-            "Laser.wavefunction" => "",
-            )
-    
+    data_info = Dict(
+        "clampstate" => deepcopy(ClampState),
+        "c0" => c0,
+        "c1" => c1,
+        "c2" => c2,
+        "DAQ.Primary" => deepcopy(DAQPrimary),
+        "DAQ.Secondary" => deepcopy(DAQSecondary),
+        "DAQ.Command" => deepcopy(DAQCommand),
+        "Laser.wavefunction" => "",
+    )
+
     time = fid["info"]["1"]["values"][:]
     data = deepcopy(fid["data"][:, :])
     close(fid)
