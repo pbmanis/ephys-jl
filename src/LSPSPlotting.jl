@@ -11,7 +11,7 @@ include("MiniAnalysis.jl")
 export plot_one_trace, stack_plot
 export plot_event_distribution
 
-function plot_event_distributions(df; response_window = 25.0)
+function plot_event_distributions(df; response_window = 25.0, figurename=Union{str, nothing} = nothing)
     # d is the dataframe (from miniAnalysis events_to_dataframe)
     binsx = 50
     p_amp = plot(
@@ -56,6 +56,9 @@ function plot_event_distributions(df; response_window = 25.0)
     )
     l = @layout [a b; c d] # ; e f]
     u = plot(p_amp, p_dur, p_rt, p_lat, layout = l, show = true)
+    if figurename != nothing
+        savefig(u, figurename)
+    end
     return u
 end
 
@@ -80,11 +83,54 @@ function decorate_and_paint!(
     tmax = maximum(tdat)
     dt_seconds = mean(diff(tdat))
     evk = filter(r -> any(occursin.([class], r.class)), eventdf) # eventdf[in("evoked").(eventdf.class), :]
+    changed_df = filter(r -> r.class != r.newclass, eventdf)
+    # println("Changed events: ", size(changed_df))
+    nchev = size(changed_df)[1]  # get number of rows with changes
     pkt = evk[(evk.peaktime.<tmax*1e3), :peaktime]
     onset = evk[(evk.peaktime.<tmax*1e3), :onsettime]
     amp = sign .* evk[(evk.peaktime.<tmax*1e3), :amp]
     dur = evk[(evk.peaktime.<tmax*1e3), :dur]
-    # decorate with a dot
+    # classify changed events so we can mark them
+    #=
+    Choose from [:none, :auto, :circle, :rect, :star5, :diamond,
+     :hexagon, :cross, :xcross, :utriangle, :dtriangle, 
+    :rtriangle, :ltriangle, :pentagon, :heptagon, :octagon, :star4, :star6, :star7, :star8, :vline, :hline, :+, :x].
+    =#
+    for i = 1:size(changed_df)[1]
+        markersize = 3
+        markershape = :circle
+        dfr = changed_df[i, :]
+        # println("changed: ", i, " ", dfr.class)
+        if (dfr.class == "evoked") & (dfr.newclass == "direct")
+            markersize=8
+            markershape = :dtriangle  # demoted
+        elseif (dfr.class == "direct") & (dfr.newclass == "evoked")
+            markersize=8
+            markershape = :utriangle # promoted
+        elseif (dfr.class == "direct") & (dfr.newclass == "spontaneous")
+            markersize=8
+            markershape = :xcross
+        elseif (dfr.class == "evoked") & (dfr.newclass == "spontaneous")
+                markersize=8
+                markershape = :plus  # demoted
+        else
+            markersize=4
+            markershape = :star5  # mark all others
+        end
+        p_I = plot!(
+            p_I,
+            [dfr.peaktime*1e-3],
+            [(sign*dfr.amp*1e-12) - vertical_offset],
+            seriestype = :scatter,
+            markercolor = :red,
+            markersize = markersize,
+            markershape = markershape,
+            legend=false,
+            )
+    end
+    
+    
+    # decorate with a dot at the peak using the passed color for the event type
     p_I = plot!(
         p_I,
         pkt .* 1e-3,
@@ -92,11 +138,11 @@ function decorate_and_paint!(
         seriestype = :scatter,
         markercolor = markercolor,
         markerstrokecolor = markercolor,
+        markeralpha = 0.35,
         markerstrokewidth = 0.5,
-        markersize = 3,
+        markersize = 2.5,
         legend = false,
     )
-
     # paint events according to their classification
     for k = 1:size(onset)[1]
         onset_i = Int64(floor(1e-3 .* onset[k] ./ dt_seconds))
@@ -107,7 +153,7 @@ function decorate_and_paint!(
             tdat[onset_i:pkend_i],
             idat[onset_i:pkend_i] .- vertical_offset,
             color = linecolor,
-            linewidth = 2.5 * linewidth,
+            linewidth = 1.0 * linewidth,
             legend = false,
         )
     end
@@ -202,6 +248,18 @@ function plot_one_trace(
         class = "spontaneous",
         markercolor = :yellow,
     )
+    p_I = decorate_and_paint!(
+        p_I,
+        tdat,
+        idat,
+        vertical_offset,
+        eventdf,
+        sign,
+        linecolor = :red,
+        linewidth = linewidth,
+        class = "noise",
+        markercolor = :red,
+    )
 
     return p_I
 end
@@ -218,6 +276,7 @@ function plot_trace(p_I, x, y)
 end
 
 function stack_plot(
+    df,
     tdat,
     idat,
     data_info,
@@ -225,7 +284,7 @@ function stack_plot(
     events,
     above_zthr;
     mode = "Undef",
-    saveflag = false,
+    figurename = Union{str, nothing} = nothing,
 )
     #=
     Make a stacked set of plots
@@ -236,8 +295,7 @@ function stack_plot(
     above_zthr : array of boolean based on AScore > some value
     saveflag : set true to write file to disk
     =#
-
-    println("Plotting stacks of traces")
+    println("   Doing stacked trace plot")
     vspc = 50 * 1e-12
     twin = [0.0, 1.0]
     tmax = maximum(twin) * 1e3 # express in msec
@@ -255,17 +313,16 @@ function stack_plot(
     bot_lims = minimum(vertical_offset)
     ylims = [bot_lims, top_lims]
 
-    n, df = MiniAnalysis.events_to_dataframe(events)
-    println("ntraces: ", ntraces)
+    # n, df = MiniAnalysis.events_to_dataframe(events)
     p_I = nothing
     @timed for i = 1:ntraces
+        # println("Plotting trace: ", i)
         lc = :black
-        lw = 0.3
+        lw = 0.25
         if i in above_zthr
             lc = :red
-            lw = 0.7
+            lw = 0.5
         end
-        # p_I = plot_trace(p_I, tdat[ipts, i], idat[ipts, i] .+ vertical_offset[i])
         p_I = plot_one_trace(
             p_I,
             tdat[ipts, i],
@@ -276,7 +333,6 @@ function stack_plot(
             linecolor = lc,
             linewidth = lw,
         )
-
     end
 
     # avg = mean(idat[ipts, above_zthr], dims = 2)
@@ -312,6 +368,9 @@ function stack_plot(
     ) #, 0.30, 0.30]))
 
     PX =  plot!(p_I, size = (600, 800), show = true)
+    if figurename != nothing
+        savefig(PX, figurename)
+    end
     return PX
 end
 

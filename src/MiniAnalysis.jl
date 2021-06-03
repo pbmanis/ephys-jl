@@ -8,7 +8,7 @@ using Random, Distributions
 using DSP
 using ArraysOfArrays
 using ElasticArrays
-
+using Crayons.Box
 using Distributed
 using SharedArrays  # important for parallel/looping
 # using ProgressMeter
@@ -263,6 +263,7 @@ struct Event
     duration::Float64
     falltime::Float64
     class::String
+    newclass::String
 end
 
 struct Events
@@ -278,12 +279,13 @@ function unpack_events(d)
     amp = Vector{Float64}(undef, n)
     peakt = Vector{Float64}(undef, n)
     onsettime = Vector{Float64}(undef, n)
-    lat = Vector{Float64}(undef, n)  # relative to nearest previous stimulus
+    lat = Vector{Float64}(undef, n)  # relative to nearest previous 
     dur = Vector{Float64}(undef, n)
     rt = Vector{Float64}(undef, n)
     ft = Vector{Float64}(undef, n)
     rfratio = Vector{Float64}(undef, n)
     class = Vector{String}(undef, n)
+    newclass = Vector{String}(undef, n)
     for i = 1:n
         trace[i] = d.events[i].trace
         eventno[i] = d.events[i].eventno
@@ -295,13 +297,15 @@ function unpack_events(d)
         rt[i] = d.events[i].risetime
         rfratio[i] = rt[i] / d.events[i].falltime
         class[i] = d.events[i].class
+        newclass[i] = d.events[i].newclass
+        
     end
-    return n, trace, eventno, amp, onsettime, peakt, lat, dur, rt, ft, rfratio, class
+    return n, trace, eventno, amp, onsettime, peakt, lat, dur, rt, ft, rfratio, class, newclass
 end
 
 function events_to_dataframe(d)
     # unpack d and reformat as a DataFrame
-    n, trace, eventno, amp, onset_t, peakt, lat, dur, rt, ft, rfratio, class =
+    n, trace, eventno, amp, onset_t, peakt, lat, dur, rt, ft, rfratio, class, newclass =
         unpack_events(d)
     df = DataFrame(
         trace = trace,
@@ -314,6 +318,7 @@ function events_to_dataframe(d)
         rt = rt,
         rfratio = rfratio,
         class = class,
+        newclass = newclass
     )
     return n, df
 end
@@ -340,20 +345,20 @@ function label_events(
     pks,
     ev_end,
     template,
-    thr,
-    sign;
+    thr::Float64,
+    sign::Int64,
+    classifier;
     data_info = nothing,
-    response_window = 25.0,
 )
     if data_info == nothing
         return nothing
     end
-    evts = Events("My wonderful Events", Vector{Event}())
+    evts = Events("All the Events", Vector{Event}())
     dt_seconds = mean(diff(tdat[:, 1]))
 
     # get the light flash times from the data_info
     stim_lats = get_stim_times(data_info)
-    println("Stimlats: ", stim_lats)
+    # println("Stimlats: ", stim_lats)
     for i = 1:size(idat)[2]
         if npks[i] == 0
             continue
@@ -366,29 +371,37 @@ function label_events(
                 ft = (ev_end[i][j] .- pks[i][j]) .* dt_seconds .* 1e3
                 evlat = tdat[ev[i][j]] * 1e3  # absolute latency of this event
                 peakt = tdat[pks[i][j], i] .* 1e3
-                lat = -1.0
+                lat = -100.0  # push latency way out of our range so later ML classifier doesn't confuse with local events
 
-                class = "spontaneous"
+                class = "noise"  # assume everyting is noise
                 # check to see if event falls into an evoked window
-                for k = 1:size(stim_lats)[1]
+                for k = 1:size(stim_lats)[1]  # check after each stimulus
                     if (evlat .> stim_lats[k]) .&
-                       (evlat .<= (stim_lats[k] + response_window))
-                        lat = evlat - stim_lats[k]  # this should only happen once... 
-                        # println("set evoked: ", i, " ", j, " ", lat)
-                        class = "evoked"
-                        break
+                       (evlat .<= (stim_lats[k] + classifier.maxEvLat))
+                        lat = evlat - stim_lats[k]
+                        # now sort direct from evoked
+                        if (lat >= classifier.minDirLat) & 
+                           (lat < classifier.minEvLat) & 
+                           (dur >= classifier.minDirDur) # short latency, long duration
+                            # println("Set direct: ", lat, " ", dur)
+                            class = "direct"  # relabel
+                        end
+                        if (lat >= classifier.minEvLat) & # latency and short duration mark putative evoked
+                            (lat < classifier.maxEvLat) &  # logically redundantwith first if statement 
+                            (dur < classifier.minDirDur)
+                            # println("set evoked: ", i, " ", j, " ", lat)
+                            class = "evoked"  # assign putative class
+                        end
                     end
                 end
-                if (lat > 0) & (lat <= 3.0) & (dur > 10.0) & (class == "evoked")
-                    # println("Set direct: ", lat, " ", dur)
-                    class = "direct"
-                end
-                if (amp < 3.0) | (dur < 0.5)
-                    # println("Reset to noise: ", i, " ", j, " ", amp, " ", dur)
-                    class = "noise"
+
+                if (class == "noise") & ((amp > classifier.minEvAmp) & (dur > classifier.minEvDur)) # not direct or evoked
+                    # so see if is valid "event" to put in the spontaneous class
+                    # println("Assigned to spont: ", i, " ", j, " ", amp, " ", dur)
+                    class = "spontaneous"
                 end
                 # println("lat: ", lat, " amp: ", amp, " dur: ", dur, " class: ", class)
-                e = Event(index, i, j, lat, amp, evlat, peakt, rt, dur, ft, class)
+                e = Event(index, i, j, lat, amp, evlat, peakt, rt, dur, ft, class, class)  # note "newclass" is same as class here
                 push!(evts.events, e)
             end
         end
@@ -738,9 +751,9 @@ function identify_events(wave, crit, thr, dt, sign; thresh = 3.0, ev_win = 5e-3)
                 iend = findfirst((wave[iev:end-1] .>= 0) .& (wave[iev+1:end] .< 0))
                 ipk = argmax(wave[iev:(iev+iend)])
             end
-            pks[k] = ipk + iev
+            pks[k] = ipk + iev - 1
             if iend != nothing
-                evt = iev + ipk + iend
+                evt = iev + ipk + iend - 2
                 ev_end[k] = minimum((size(wave)[1], evt))
             end
             k += 1
@@ -799,7 +812,7 @@ function detect_events(
         pars = (tau = tau1, dt = dt_seconds)  # tau instead of template
     elseif mode == "ZC"
         method = zero_crossings
-        if zcpars == ()  # make zcpars is populated
+        if zcpars == ()  # make sure that zcpars is populated
             zcpars = (
                 minDuration = 0.0,
                 minPeak = 5e-12,
@@ -824,7 +837,7 @@ function detect_events(
         println("Method not recognized: ", mode)
     end
     if parallel
-        println(" Event detection, parallel")
+        println(WHITE_FG, "    Event detection, parallel")
         s = SharedArray{Float64,2}((nwave, n_traces))
         c = SharedArray{Float64,2}((nwave, n_traces))
         @time @threads for i = 1:n_traces
@@ -832,19 +845,19 @@ function detect_events(
         end
 
     else
-        println(" Event detection, serial")
+        println(WHITE_FG, "    Event detection, serial")
         s = Array{Float64,2}(undef, (nwave, n_traces))
         c = Array{Float64,2}(undef, (nwave, n_traces))
         @time for i = 1:n_traces
             s[:, i], c[:, i] = method(idat[:, i], pars)
         end
     end
-    println("Detection complete") # draw the threshold line
+    println(WHITE_FG, "    Detection complete") # draw the threshold line
     thr = std(c) * thresh  # all traces go into the threshold
     # println("thr: ", thr, " ", thresh)
 
     if parallel
-        println(" Event identification, parallel")
+        println(WHITE_FG, "    Event identification, parallel")
         evx = SharedArray{Int64,2}((nwave, n_traces))  # event onsets
         pksx = SharedArray{Int64,2}((nwave, n_traces))  # event peaks
         ev_endx = SharedArray{Int64,2}((nwave, n_traces))  # event peaks
@@ -872,7 +885,7 @@ function detect_events(
         end
 
     else
-        println(" Event identification, serial")
+        println(WHITE_FG, "    Event identification, serial")
         ev = Array{Array{Int64}}(undef, (n_traces))  # event onsets
         pks = Array{Array{Int64}}(undef, (n_traces))  # event peaks
         ev_end = Array{Array{Int64}}(undef, (n_traces))  # event peaks
@@ -883,7 +896,7 @@ function detect_events(
             npks[i] - size(ev[i])[1]
         end
     end
-
+    println(WHITE_FG, "    Identification Complete")
     return s, c, npks, ev, pks, ev_end, thr
 
 end

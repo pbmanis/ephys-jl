@@ -2,7 +2,7 @@ module LSPSAnalysis
 using LsqFit
 using Statistics
 using Printf
-
+using Crayons.Box
 using DSP
 using Base.Threads
 
@@ -10,6 +10,7 @@ include("Acq4Reader.jl")
 include("MiniAnalysis.jl")
 include("EPSC_lda.jl")
 include("LSPSPlotting.jl")
+include("LSPSStackPlot.jl")
 
 export LSPS_read_and_plot, aone
 
@@ -153,33 +154,33 @@ function filter_data_bandpass(tdat, idat; lpf = 3000, hpf = 0)
 end
 
 
+
 function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ")
     #=
     Read an HDF5 file, do a little analysis on the data
         -- ivs and fitting
     and plot the result
     =#
-    println("reading file")
+    println(GREEN_FG, "Reading Data File")
     @time tdat, idat, vdat, data_info = Acq4Reader.read_hdf5(filename)
     # top_lims, bot_lims = Acq4Reader.get_lims(data_info["clampstate"]["mode"])
     maxt = 1.0
     dt_seconds = 1.0 / data_info["DAQ.Primary"]["rate"]
     @printf(
-        "Data lengths: Time=%d  I=%d  V=%d  [# traces = %d]  Duration: %8.3f sec\n",
+        "    Data lengths: Time=%d  I=%d  V=%d  [# traces = %d]  Duration: %8.3f sec\n",
         size(tdat)[1],
         size(idat)[1],
         size(vdat)[1],
         size(tdat)[2],
         maximum(tdat[:, 1])
     )
-    ntr = size(tdat)[2] # 20
+    ntr =  size(tdat)[2] # 20
     imax = Int64(maxt / dt_seconds)
-    println("imax: ", imax)
 
     idat = idat[1:imax, 1:ntr]
     tdat = tdat[1:imax, 1:ntr]
 
-    println("Preparing data")
+    println(GREEN_FG, "Preparing data (detrending, artifact suppression, filtering)")
     demean!(idat)
     detrend!(idat)
     notchfreqs = [
@@ -192,24 +193,35 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     idat = filter_data_bandpass(tdat, idat, lpf = 2500.0)
     # calculate zscores
     sign = -1
-    println("computing ZScores")
+    println(GREEN_FG, "Computing ZScores")
     @time zs = ZScore(tdat, idat .* sign, baseline = [0, 0.1], score_win = [0.9, 0.93])
-    println("    Max Z Score: ", maximum(zs), " of ", size(zs))
-    above_zthr = findall(zs[1, :] .> 1.96)
-    println("#     traces above z threshod: ", size(above_zthr), " ", above_zthr)
+    println(WHITE_FG, "    Max Z Score: ", maximum(zs), " of ", size(zs))
+    zthr = 1.96
+    above_zthr = findall(zs[1, :] .> zthr)
+    println(WHITE_FG, "    # traces above z threshod: ", size(above_zthr), " ", above_zthr)
 
     zcpars = (
-        minDuration = 5e-3,
+        minDuration = 1e-3,
         minPeak = 5e-12,
         minCharge = 0e-12,
         noiseThreshold = 4.0,
         checkplot = false,
         extra = false,
     )
+    
+    classifier = (
+        minEvAmp = 3.0,
+        minEvDur = 0.5,
+        minEvQ = 0.,
+        minEvLat = 3.0,
+        maxEvLat = 25.0,
+        minDirLat = 0.0,
+        minDirDur = 10.0
+    )
     # s, c, ev, pks, thr = MiniAnalysis.detect_events(mode, idat[:,1:ntr], dt_seconds,
     #         parallel=false, thresh=3.0, tau1=1*1e-3, tau2=3*1e-3, sign=-1,
     #         zcpars = zcpars)
-    println("detecting events")
+    println(GREEN_FG, "Detecting events")
     @time s, c, npks, ev, pks, ev_end, thr = MiniAnalysis.detect_events(
         mode,
         idat,
@@ -222,7 +234,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         zcpars = zcpars,
     )
     template = nothing
-    println("labeling events")
+    println(GREEN_FG, "Labeling events (classifcation)")
     @time events = MiniAnalysis.label_events(
         tdat,
         idat,
@@ -235,17 +247,32 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         template,
         thr,
         sign,
+        classifier,
         data_info = data_info,
     )
-    print("No. events: ", size(events.events)[1])
-    println("Plotting distributions")
-    n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
-    @time u = LSPSPlotting.plot_event_distributions(df)  # distributions don't care about trace
-    # savefig(u, "mini_event_distributions.pdf")
-    saveflag = false
-    print("idat: ", idat[1:10, 1])
+    println(WHITE_FG, "    Number of events: ", size(events.events)[1])
 
-    PX = LSPSPlotting.stack_plot(
+    n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
+    newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation
+
+    println(GREEN_FG, "Plotting distributions")
+    @time u = LSPSPlotting.plot_event_distributions(df, figurename="mini_event_distributions.pdf")  # distributions don't care about trace
+    println(GREEN_FG, "Plotting traces and annotations")
+    # @time PX = LSPSPlotting.stack_plot(
+    #     df,
+    #     tdat,
+    #     idat,
+    #     data_info,
+    #     sign,
+    #     events,
+    #     above_zthr,
+    #     mode = mode,
+    #     figurename = "stack_plot.pdf"
+    # )
+    # return PX, u
+
+    @time PX = LSPSStackPlot.stack_plot(
+        df,
         tdat,
         idat,
         data_info,
@@ -253,6 +280,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         events,
         above_zthr,
         mode = mode,
+        # figurename = "stack_plot.pdf"
     )
     return PX, u
 end
