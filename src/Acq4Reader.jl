@@ -15,7 +15,7 @@ using InteractiveUtils
 using PyCall
 pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader... 
 
-export read_hdf5, get_lims
+export read_hdf5, get_lims, get_stim_times
 
 pyplot()
 
@@ -179,7 +179,19 @@ function get_indices(data_info)
     return topidx, botidx
 end
 
-function get_stim_times(data_info, device="Laser")
+# function get_stim_times(data_info)
+#     wv = data_info["Laser.wavefunction"]
+#     u = split(wv, "\n")
+#     stim_lats = Vector{Float64}()
+#     re_float = r"[+-]?\d+\.?\d*"
+#     for i = 1:size(u)[1]
+#         s = match(re_float, u[i])
+#         append!(stim_lats, parse(Float64, s.match) * 1e3)
+#     end
+#     return stim_lats
+# end
+
+function get_stim_times(data_info; device="Laser")
     #=
     Retrieve stimulus times from a device's wavefunction parameters
     The default will get the information from a Laser device

@@ -5,12 +5,15 @@ using Printf
 using Crayons.Box
 using DSP
 using Base.Threads
-
+using Revise
+using Plots
+ENV["PYTHON"] = "/Users/pbmanis/Desktop/Python/ephys/ephys_venv/bin/python"
 include("Acq4Reader.jl")
 include("MiniAnalysis.jl")
 include("EPSC_lda.jl")
 include("LSPSPlotting.jl")
 include("LSPSStackPlot.jl")
+include("LSPSFitting.jl")
 
 export LSPS_read_and_plot, aone
 
@@ -155,7 +158,7 @@ end
 
 
 
-function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ")
+function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ", maxtr=0, makie="i")
     #=
     Read an HDF5 file, do a little analysis on the data
         -- ivs and fitting
@@ -174,7 +177,12 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         size(tdat)[2],
         maximum(tdat[:, 1])
     )
+
     ntr =  size(tdat)[2] # 20
+    
+    if (maxtr > 0) & (maxtr <= ntr)
+        ntr = maxtr
+    end
     imax = Int64(maxt / dt_seconds)
 
     idat = idat[1:imax, 1:ntr]
@@ -216,7 +224,8 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         minEvLat = 3.0,
         maxEvLat = 25.0,
         minDirLat = 0.0,
-        minDirDur = 10.0
+        minDirDur = 10.0,
+        minDirRT = 2.0,
     )
     # s, c, ev, pks, thr = MiniAnalysis.detect_events(mode, idat[:,1:ntr], dt_seconds,
     #         parallel=false, thresh=3.0, tau1=1*1e-3, tau2=3*1e-3, sign=-1,
@@ -238,8 +247,6 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     @time events = MiniAnalysis.label_events(
         tdat,
         idat,
-        s,
-        c,
         npks,
         ev,
         pks,
@@ -255,9 +262,28 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
     newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation
 
-    println(GREEN_FG, "Plotting distributions")
-    @time u = LSPSPlotting.plot_event_distributions(df, figurename="mini_event_distributions.pdf")  # distributions don't care about trace
-    println(GREEN_FG, "Plotting traces and annotations")
+    # println(GREEN_FG, "Plotting distributions")
+    # @time u = LSPSPlotting.plot_event_distributions(df, figurename="mini_event_distributions.pdf")  #distributionsdon't care about trace
+
+    println(GREEN_FG, "Extracting direct events", WHITE_FG)
+    extracted = MiniAnalysis.extract_events(tdat, idat, npks, df, sign, "direct")
+    println("Number of extracted events of class direct: ", size(extracted))
+    nextracted = size(extracted)[1]
+    p_ex = nothing
+    p_diff = nothing
+    CList = cgrad(:Paired_10, nextracted, categorical=true)
+    
+    for i in 1:nextracted
+        ex = extracted[i]
+        p_ex, p_diff, yfit = LSPSPlotting.fit_and_plot_events(p_ex, p_diff, ex.tdat, ex.idat, CList[i], mindy=-1e2)
+        ysub = ex.idat .- yfit
+        tr = ex.trace
+        idat[ex.onset:ex.pkend, ex.trace] .= ysub
+    end
+    # px = LSPSPlotting.finalize_fitted_plot(p_ex, p_diff)
+    # return px
+    #
+    # println(GREEN_FG, "Plotting traces and annotations", WHITE_FG)
     # @time PX = LSPSPlotting.stack_plot(
     #     df,
     #     tdat,
@@ -271,7 +297,45 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     # )
     # return PX, u
 
-    @time PX = LSPSStackPlot.stack_plot(
+    # repeat analysis, this time with AJ method now that directs are removed
+    println(GREEN_FG, "Detecting events, with AJ")
+    mode = "AJ"
+    @time s, c, npks, ev, pks, ev_end, thr = MiniAnalysis.detect_events(
+        mode,
+        idat,
+        dt_seconds,
+        parallel = true,
+        thresh = 2.5,
+        tau1 = 0.5e-3,
+        tau2 = 3e-3,
+        sign = sign,
+        zcpars = zcpars,
+    )
+    template = nothing
+    println(GREEN_FG, "Labeling events (classifcation)")
+    @time events = MiniAnalysis.label_events(
+        tdat,
+        idat,
+        npks,
+        ev,
+        pks,
+        ev_end,
+        template,
+        thr,
+        sign,
+        classifier,
+        data_info = data_info,
+    )
+    println(WHITE_FG, "    Number of events: ", size(events.events)[1])
+
+    n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
+    # newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation
+    
+
+
+    splitname = splitpath(filename)
+    figtitle = joinpath(splitname[end-3:end]...)
+    @time PX = LSPSStackPlot.stack_plot2(
         df,
         tdat,
         idat,
@@ -280,9 +344,11 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         events,
         above_zthr,
         mode = mode,
-        # figurename = "stack_plot.pdf"
+        figurename = figtitle,
+        maxtraces = ntr,
+        makie = makie,
     )
-    return PX, u
+    return PX
 end
 
 end

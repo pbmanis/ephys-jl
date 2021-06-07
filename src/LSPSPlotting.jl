@@ -1,14 +1,17 @@
 module LSPSPlotting
 using Base
+using Formatting
+using StatsBase
 import DataFrames: DataFrame, describe, select, Not
 using Statistics
 using Printf
 # ENV["MPLBACKEND"] = "MacOSX"
 using Plots
 pyplot()
-include("MiniAnalysis.jl")
 
-export plot_one_trace, stack_plot
+include("LSPSFitting.jl")
+
+export plot_one_trace, stack_plot, plot_trace, finalize_plot
 export plot_event_distribution
 
 function plot_event_distributions(df; response_window = 25.0, figurename=Union{str, nothing} = nothing)
@@ -264,16 +267,54 @@ function plot_one_trace(
     return p_I
 end
 
-function plot_trace(p_I, x, y)
-    if isnothing(p_I)
-        p_I = plot(x, y, legend=false)
-        println("isnothing")
+
+function fit_and_plot_events(p_raw, p_sub, x, y, color; mindy::Float64=-1e2)
+
+    # fits = Vector{Float64}(undef, 4)
+    # for i = 1:4
+    #     minflag, y0, efit = LSPSFittingfit_direct(x, y, n=i, mindy=mindy)
+    #     rms = rmsd(y, y0)
+    #     fits[i] = rms*1e12
+    #     # println("i: ", i, "  rms: ", rms)
+    # end
+    # bestn = argmin(fits)
+    bestn = 3
+    minflag, y0, efit = LSPSFitting.fit_direct(x, y, n=bestn, mindy=mindy)
+    
+    # return p_raw, p_sub, y0, minflag
+    
+    # if minflag
+    #     return p_raw, p_sub, y0
+    # end
+    if isnothing(p_raw)
+        p_raw = plot(x, y, linecolor=color, legend=false)
+        p_raw = plot!(p_raw, x, y0, linecolor=color, legend=false, linestyle=:dash)
     else
-        p_I = plot!(p_I, x, y, legend=false)
-        println("was not nothing")
+        p_raw = plot!(p_raw, x, y, linecolor=color, legend=false)
+        p_raw = plot!(p_raw, x, y0, linecolor=color, legend=false, linestyle=:dash)
+        # println("was not nothing")
     end
-    return p_I
+    if isnothing(p_sub)
+        p_sub = plot(x, y .- y0, linecolor=color, legend=false)
+    else
+        p_sub = plot!(p_sub, x, y .- y0, linecolor=color, legend=false)
+    end
+    return p_raw, p_sub, y0
 end
+
+function finalize_fitted_plot(p1, p2)
+    if (p1 == nothing) | (p2 == nothing)
+        return nothing
+    end
+    l = @layout [a; b] # ; e f]
+    xlabel!(p1, "T (sec)")
+    ylabel!(p1, "I (A)")
+    xlabel!(p2, "T (sec)")
+    ylabel!(p2, "I (A)")
+    PX =  plot(p1, p2, layout=l, size = (600, 600), show = true)
+    return PX
+end
+
 
 function stack_plot(
     df,
@@ -313,7 +354,6 @@ function stack_plot(
     bot_lims = minimum(vertical_offset)
     ylims = [bot_lims, top_lims]
 
-    # n, df = MiniAnalysis.events_to_dataframe(events)
     p_I = nothing
     @timed for i = 1:ntraces
         # println("Plotting trace: ", i)
@@ -340,7 +380,7 @@ function stack_plot(
     # p_avg = plot(tdat[ipts, 1], rawavg * 1e12, w = 0.2, linecolor = "gray")
     # p_avg = plot!(p_avg, tdat[ipts, 1], avg * 1e12, w = 0.5, linecolor = "blue")
 
-    stim_lats = 1e-3 .* MiniAnalysis.get_stim_times(data_info)
+    stim_lats = 1e-3 .* Acq4Reader.get_stim_times(data_info, device="Laser")
     for i = 1:size(stim_lats)[1]
         p_I = plot!(
             p_I,

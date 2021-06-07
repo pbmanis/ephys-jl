@@ -23,13 +23,13 @@ using DataFrames
 using Plots
 pyplot()
 
+include("LSPSPlotting.jl")
+include("Acq4Reader.jl")
 
 # externally visible routines:
-
 export testdetector, testtemplate, make_test_waveforms
-export detect_events, label_events, plot_event_distributions
-export unpack_events, events_to_dataframe
-export get_stim_times
+export detect_events, label_events
+export unpack_events, events_to_dataframe, extract_events
 
 function clements_bekkers(
     data::Array{Float64,1},
@@ -321,25 +321,11 @@ function events_to_dataframe(d)
         newclass = newclass
     )
     return n, df
-end
-
-function get_stim_times(data_info)
-    wv = data_info["Laser.wavefunction"]
-    u = split(wv, "\n")
-    stim_lats = Vector{Float64}()
-    re_float = r"[+-]?\d+\.?\d*"
-    for i = 1:size(u)[1]
-        s = match(re_float, u[i])
-        append!(stim_lats, parse(Float64, s.match) * 1e3)
-    end
-    return stim_lats
-end
+end 
 
 function label_events(
     tdat,
     idat,
-    s,
-    c,
     npks,
     ev,
     pks,
@@ -357,7 +343,7 @@ function label_events(
     dt_seconds = mean(diff(tdat[:, 1]))
 
     # get the light flash times from the data_info
-    stim_lats = get_stim_times(data_info)
+    stim_lats = Acq4Reader.get_stim_times(data_info)
     # println("Stimlats: ", stim_lats)
     for i = 1:size(idat)[2]
         if npks[i] == 0
@@ -382,6 +368,7 @@ function label_events(
                         # now sort direct from evoked
                         if (lat >= classifier.minDirLat) & 
                            (lat < classifier.minEvLat) & 
+                           (rt >= classifier.minDirRT) &
                            (dur >= classifier.minDirDur) # short latency, long duration
                             # println("Set direct: ", lat, " ", dur)
                             class = "direct"  # relabel
@@ -409,54 +396,84 @@ function label_events(
     return evts
 end
 
+"""
+The data structure EventTrace holds information about
+an individual event - it's type, the waveform,
+the trace number it cme from, and the index for the
+start and end of the event (from the zero-crossing algorithm)
+Typically, this would be used as an element in a vector holding
+a group of events. The vector here is loaded up by extract_events,
+which gets all of the events for a given class into an array
 
-function plot_event_distributions(df; response_window = 25.0)
-    # d is the dataframe (from events to dataframe)
-    binsx = 50
-    p_amp = plot(
-        df.amp,
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, maximum(df.amp)],
-        xlabel = "Amplitude (pA)",
-        ylabel = "# obs",
-    )
-    p_dur = plot(
-        df.dur,
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, maximum(df.dur)],
-        xlabel = "Durations (ms)",
-        ylabel = "# obs",
-    )
-    p_rt = plot(
-        df.rt,
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, maximum(df.rt)],
-        xlabel = "Rise Times (ms)",
-        ylabel = "# obs",
-    )
-    p_lat = plot(
-        df.lat[df.lat.>=0.0],
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, response_window],
-        xlabel = "Latencies (ms)",
-        ylabel = "# obs",
-    )
-    l = @layout [a b; c d] # ; e f]
-    u = plot(p_amp, p_dur, p_rt, p_lat, layout = l)
-    return u
+"""
+struct EventTrace
+    class::String
+    tdat::Vector{}
+    idat::Vector{}
+    trace::Int64
+    onset::Int64
+    pkend::Int64
 end
+
+"""
+    extract_events)     tdat,
+    idat,
+    s,
+    c,
+    npks,
+    ev,
+    pks,
+    ev_end,
+    template,
+    thr::Float64,
+    sign::Int64,
+    classifier;
+    data_info = nothing,)
+    
+    Return all extracted events meeting the classifiation, with their time bases
+    
+"""
+
+function extract_events(
+    tdat,
+    idat,
+    npks,
+    df,
+    sign,
+    classifier,
+)
+
+    dt_seconds = mean(diff(tdat[:, 1]))
+    tmax = 1.0 # seconds
+    extracted = Vector{EventTrace}()
+    ntraces = size(idat)[2]
+    for i = 1:ntraces
+        eventdf = df[in([i]).(df.trace), :]
+        evk = filter(r -> any(occursin.([classifier], r.class)), eventdf)
+        # evk = eventdf[in("evoked").(eventdf.class), :]
+        # changed_df = filter(r -> r.class != r.newclass, eventdf)
+        # println("Events: ", size(evk))
+        # nchev = size(changed_df)[1]  # get number of rows with changes
+        pkt = evk[(evk.peaktime.<tmax*1e3), :peaktime]
+        onset = evk[(evk.peaktime.<tmax*1e3), :onsettime]
+        amp = sign .* evk[(evk.peaktime.<tmax*1e3), :amp]
+        dur = evk[(evk.peaktime.<tmax*1e3), :dur]
+        for k = 1:size(onset)[1]
+            onset_i = Int64(floor(1e-3 .* onset[k] ./ dt_seconds))
+            pkend_i = Int64(floor(1e-3 .* (onset[k] .+ dur[k]) ./ dt_seconds))
+            evx = EventTrace(classifier,
+                    tdat[onset_i:pkend_i, i].-tdat[onset_i, i],
+                    idat[onset_i:pkend_i, i],
+                    i,  # save trace of origin
+                    onset_i, # and onset position
+                    pkend_i, # and end position
+                ) 
+            push!(extracted, evx)
+        end
+    end
+    return extracted
+end
+
 
 """
 locate events of any shape in a signal. Works by finding regions of the signal
@@ -644,7 +661,7 @@ function test_template()
     plot!(size = (500, 500))
 end
 
-function filter(tdat, idat; lpf = 3000, hpf = 0)
+function filter_data(tdat, idat; lpf = 3000, hpf = 0)
     #=
     Digitally filter the data in dat with either a
     lowpass filter (lpf) or an hpf filter (hpf)
@@ -715,7 +732,7 @@ function make_test_waveforms(;
         wv = conv(evta, template)[1:n_t_wave]  # clip to standard length
         tmax = size(wv)[1] * dt_seconds
         t_psc[:, i] = collect(range(0.0, tmax, length = size(wv)[1]))
-        w_psc[:, i] = filter(t_psc, wv, lpf = lpf)
+        w_psc[:, i] = filter_data(t_psc, wv, lpf = lpf)
     end
     return t_psc, w_psc, dt_seconds, template
 
@@ -1177,7 +1194,7 @@ function testdetector(
         zcpars = zcpars,
     )
     # u = plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, sign)
-    u = plot_event_distributions(
+    u = LSPSPlotting.plot_event_distributions(
         t_psc,
         idat,
         s,
