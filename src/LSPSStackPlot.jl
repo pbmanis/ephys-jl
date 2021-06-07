@@ -46,9 +46,12 @@ function stack_plot2(
     if makie == "i"
         GLMakie.activate!()
         whichMakie = GLMakie
+        println("Activated GLMakie")
     elseif makie == "p"
+        resolution = (6000 ,6000)
         CairoMakie.activate!()   
         whichMakie = CairoMakie
+        println(("activated CairoMakie"))
     else
         println("makie must be either i (interactive) or p (pdf)")
         return nothing
@@ -74,7 +77,7 @@ function stack_plot2(
     ylims = [bot_lims, top_lims]
 
     # n, df = MiniAnalysis.events_to_dataframe(events)
-    figure = whichMakie.Figure(resolution = (800, 800))
+    figure = whichMakie.Figure(resolution = resolution)
     ax1 = figure[1, 1] = whichMakie.Axis(figure)
     figure[0, :] = whichMakie.Label(figure, figurename, textsize=10)
     figure[3,1] = buttongrid = GridLayout(tellwidth = false)
@@ -101,7 +104,7 @@ function stack_plot2(
     cmap = [vcat(zeros(size(idat[ipts, i])[1]), 0) for i = 1:ntraces]  # color map per point
     dt_seconds = mean(diff(tdat[:,1]))
     # class = "direct"
-    clmap = Dict("direct" => 3, "evoked" => 4, "spontaneous" =>2, "noise" => 1, "artifact" => 5)
+    clmap = Dict("direct" => 4, "evoked" => 6, "spontaneous" =>2, "noise" => 1, "artifact" => 9)  # for use with paired_10
     for (class, clevel) in clmap
         for i = 1:ntraces
             eventdf = df[in([i]).(df.trace), :]
@@ -124,7 +127,8 @@ function stack_plot2(
     idx = reduce(vcat, idx)
     idy = reduce(vcat, idy)
     cmap = reduce(vcat, cmap)
-    @time whichMakie.lines!(ax1, idx, idy, linewidth=0.25, color=cmap, colormap=:sunset)
+    println("Preparing to plot")
+    @time whichMakie.lines!(ax1, idx, idy, linewidth=0.25, color=cmap, colormap=:Paired_10)
 
     # avg = mean(idat[ipts, above_zthr], dims = 2)
     # rawavg = mean(idat[ipts, :], dims = 2)
@@ -139,29 +143,33 @@ function stack_plot2(
     whichMakie.lines!(ax1, stx, sty, linewidth=0.5, color=:lightblue, overdraw=true)
     sfx = (0.0, 1.0)
     sfy = (minimum(vertical_offset)-vspc, maximum(vertical_offset)+vspc)# title = plot(
-    println("Buildingx buttons")
-    button_labels = ["Reset Axes", "Save Figure png", "save Cairo pdf"]
-    buttons = buttongrid[1, 1:3] = [whichMakie.Button(figure, label = button_labels[i]) for i in 1:3]
     # buttons = buttongrid = whichMakie.Button("Reset")
     
-    on(buttons[1].clicks) do n
-        whichMakie.xlims!(ax1, sfx)
-        whichMakie.ylims!(ax1,  sfy)
-    end
-    on(buttons[2].clicks) do n
-        GLMakie.activate!()
-        save("stack_plot2.png", figure)
-        println("PNG saved")
-    end
-    on(buttons[3].clicks) do n
-        whichMakie.activate!()
-        save("stack_plot2.pdf", figure)
-        println("PDF saved")
+    if whichMakie == "GLMakie"
+        println("Building buttons for GLMakie")
+        button_labels = ["Reset Axes", "Save  png", "save  pdf"]
+        buttons = buttongrid[1, 1:3] = [whichMakie.Button(figure, label = button_labels[i]) for i in 1:3]
+
+        on(buttons[1].clicks) do n
+            whichMakie.xlims!(ax1, sfx)
+            whichMakie.ylims!(ax1,  sfy)
+        end
+        on(buttons[2].clicks) do n
+            GLMakie.activate!()
+            save("stack_plot2.png", figure)
+            println("PNG saved")
+        end
+        on(buttons[3].clicks) do n
+            whichMakie.activate!()
+            save("stack_plot2.pdf", figure)
+            println("PDF saved")
+        end
     end
     println("Which Makie: ", whichMakie)
     display(figure)
+    
     if whichMakie == CairoMakie
-        save("stack_plot2_cairo.pdf", figure, pt_per_unit = 0.5)
+        save("stack_plot2_cairo.png", figure)
     end
     # save("stack_plot.pdf", figure)  # when done
     return figure

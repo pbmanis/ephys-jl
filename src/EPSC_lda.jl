@@ -3,6 +3,8 @@ import DataFrames: DataFrame, describe, select, Not
 import StatsBase: countmap, cor, var
 using Distributions
 using MLJ
+@load LDA pkg = "MultivariateStats"
+
 using Distances
 using PyPlot
 export epsc_lda
@@ -117,10 +119,9 @@ function epsc_lda(df)
     """
     or: 
     """
-    @load LDA pkg = MultivariateStats
 
     println("LDA")
-    clf = machine(LDA(dist = Euclidean()), X2, y)  # CosineDist is; Euclidean seems to be better for accuracy
+    clf = machine(MLJMultivariateStatsInterface.LDA(dist = Euclidean()), X2, y)  # CosineDist is; Euclidean seems to be better for accuracy
     mach = fit!(clf, rows = train)
     ŷ = predict_mode(clf, rows = test)
     println(ŷ[1:10])

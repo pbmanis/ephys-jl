@@ -164,7 +164,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         -- ivs and fitting
     and plot the result
     =#
-    println(GREEN_FG, "Reading Data File")
+    println(GREEN_FG, "Reading Data File, V0.5")
     @time tdat, idat, vdat, data_info = Acq4Reader.read_hdf5(filename)
     # top_lims, bot_lims = Acq4Reader.get_lims(data_info["clampstate"]["mode"])
     maxt = 1.0
@@ -275,7 +275,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     
     for i in 1:nextracted
         ex = extracted[i]
-        p_ex, p_diff, yfit = LSPSPlotting.fit_and_plot_events(p_ex, p_diff, ex.tdat, ex.idat, CList[i], mindy=-1e2)
+        p_ex, p_diff, yfit = LSPSPlotting.fit_and_plot_events(p_ex, p_diff, ex.tdat, ex.idat, CList[2], mindy=-1e2)
         ysub = ex.idat .- yfit
         tr = ex.trace
         idat[ex.onset:ex.pkend, ex.trace] .= ysub
@@ -335,7 +335,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
 
     splitname = splitpath(filename)
     figtitle = joinpath(splitname[end-3:end]...)
-    @time PX = LSPSStackPlot.stack_plot2(
+    @time PX = LSPSPlotting.stack_plot(
         df,
         tdat,
         idat,
@@ -344,9 +344,10 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         events,
         above_zthr,
         mode = mode,
-        figurename = figtitle,
+        figurename = "stack_plot1.pdf",
+        figtitle = figtitle,
         maxtraces = ntr,
-        makie = makie,
+        # makie = makie,
     )
     return PX
 end

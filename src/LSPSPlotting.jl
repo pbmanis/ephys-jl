@@ -10,6 +10,7 @@ using Plots
 pyplot()
 
 include("LSPSFitting.jl")
+include("Acq4Reader.jl")
 
 export plot_one_trace, stack_plot, plot_trace, finalize_plot
 export plot_event_distribution
@@ -325,7 +326,9 @@ function stack_plot(
     events,
     above_zthr;
     mode = "Undef",
+    figtitle = "",
     figurename = Union{str, nothing} = nothing,
+    maxtraces = 0,
 )
     #=
     Make a stacked set of plots
@@ -337,13 +340,16 @@ function stack_plot(
     saveflag : set true to write file to disk
     =#
     println("   Doing stacked trace plot")
-    vspc = 50 * 1e-12
+    vspc = 50.0 * 1e-12
     twin = [0.0, 1.0]
     tmax = maximum(twin) * 1e3 # express in msec
     ipts = findall((tdat[:, 1] .>= twin[1]) .& (tdat[:, 1] .< twin[2]))
     maxpts = maximum(ipts)
-
     ntraces = size(tdat)[2]
+    if (maxtraces > 0) & (maxtraces < ntraces)
+        ntraces = maxtraces
+    end
+
     p_I = 0
     vertical_offset = Array{Float64,1}(undef, (ntraces))
     for i = 1:ntraces
@@ -373,6 +379,23 @@ function stack_plot(
             linecolor = lc,
             linewidth = lw,
         )
+        if i == 1
+            println("i = 1")
+            sfx = (-0.1, 1.1)
+            smax = maximum(vertical_offset) - vspc
+            smin = minimum(vertical_offset) + vspc
+            yl = [Float64(smax), 0.]
+            println(vspc)
+            t = yl[1]
+            yl[1] = yl[1] + vspc
+            yl[2] = yl[2] - vspc
+            println(sfx)
+            println(yl)
+            println(maximum(tdat[:, 1]))
+            println(vertical_offset)
+            p_I = plot!(p_I, xlims=sfx) # , ylims=yl)
+            p_I = plot!(p_I, ylims=(-1e-6, 1e-6))
+        end
     end
 
     # avg = mean(idat[ipts, above_zthr], dims = 2)
@@ -391,8 +414,9 @@ function stack_plot(
         )
     end
 
+
     title = plot(
-        title = @sprintf("%s Test", mode),
+        title = @sprintf("%s :: %s", mode, figurename),
         grid = false,
         showaxis = false,
         yticks = false,
