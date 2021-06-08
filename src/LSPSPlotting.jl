@@ -222,10 +222,10 @@ function plot_one_trace(
         vertical_offset,
         eventdf,
         sign,
-        linecolor = :green,
-        linewidth = linewidth,
+        linecolor = :red,
+        linewidth = linewidth*1.5,
         class = "evoked",
-        markercolor = :green,
+        markercolor = :red,
     )
     p_I = decorate_and_paint!(
         p_I,
@@ -246,23 +246,23 @@ function plot_one_trace(
         vertical_offset,
         eventdf,
         sign,
-        linecolor = :yellow,
-        linewidth = linewidth,
+        linecolor = :cyan,
+        linewidth = linewidth*0.75,
         class = "spontaneous",
-        markercolor = :yellow,
+        markercolor = :cyan,
     )
-    p_I = decorate_and_paint!(
-        p_I,
-        tdat,
-        idat,
-        vertical_offset,
-        eventdf,
-        sign,
-        linecolor = :red,
-        linewidth = linewidth,
-        class = "noise",
-        markercolor = :red,
-    )
+    # p_I = decorate_and_paint!(
+    #     p_I,
+    #     tdat,
+    #     idat,
+    #     vertical_offset,
+    #     eventdf,
+    #     sign,
+    #     linecolor = :magenta,
+    #     linewidth = linewidth,
+    #     class = "noise",
+    #     markercolor = :magenta,
+    # )
 
     return p_I
 end
@@ -329,6 +329,7 @@ function stack_plot(
     figtitle = "",
     figurename = Union{str, nothing} = nothing,
     maxtraces = 0,
+    makie = "" # ignored - just for compatability with LSPSStackPlot.stack_plot2
 )
     #=
     Make a stacked set of plots
@@ -395,8 +396,13 @@ function stack_plot(
             linecolor = :blue,
         )
     end
-
-
+    p_I = plot!(p_I, ylims = ylims)
+    labels = Dict("Evoked" => :red, "Direct" => :orange, "Spontaneous" => :gray, "Noise" => "magenta")
+    i = 0
+    for (class, color) in labels
+        p_I = plot!(p_I, [0.05+0.1*(i-1)], [ylims[1]-1.1*vspc], linewidth=2, label=class, color=color)
+        i += 1
+    end
     title = plot(
         title = @sprintf("%s :: %s", mode, figurename),
         grid = false,
@@ -406,8 +412,8 @@ function stack_plot(
         bottom_margin = -50Plots.px,
     )
     l = @layout([a{0.1h}; b])
-    PX = plot(
-        title,
+    p_I = plot(
+        title, 
         p_I,
         # layout = l,
         layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),

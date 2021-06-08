@@ -359,33 +359,36 @@ function label_events(
                 peakt = tdat[pks[i][j], i] .* 1e3
                 lat = -100.0  # push latency way out of our range so later ML classifier doesn't confuse with local events
 
-                class = "noise"  # assume everyting is noise
+                class = "spontaneous"  # assume everyting is spontaneous
                 # check to see if event falls into an evoked window
                 for k = 1:size(stim_lats)[1]  # check after each stimulus
                     if (evlat .> stim_lats[k]) .&
-                       (evlat .<= (stim_lats[k] + classifier.maxEvLat))
+                       (evlat .<= (stim_lats[k] + classifier.maxEvokedLatency))
                         lat = evlat - stim_lats[k]
                         # now sort direct from evoked
-                        if (lat >= classifier.minDirLat) & 
-                           (lat < classifier.minEvLat) & 
-                           (rt >= classifier.minDirRT) &
-                           (dur >= classifier.minDirDur) # short latency, long duration
+                        if  (lat >= classifier.minDirectLatency) & # longer than shortest direct latency
+                            (lat < classifier.minEvokedLatency) &  # but shorter than potential event
+                            (rt >= classifier.minDirectRisetime) &  # with a slower rise time
+                            (dur >= classifier.minDirectDuration) # and a longer duration
                             # println("Set direct: ", lat, " ", dur)
                             class = "direct"  # relabel
-                        end
-                        if (lat >= classifier.minEvLat) & # latency and short duration mark putative evoked
-                            (lat < classifier.maxEvLat) &  # logically redundantwith first if statement 
-                            (dur < classifier.minDirDur)
+                        elseif (lat >= classifier.minEvokedLatency) & # latency and short duration mark putative evoked
+                            (lat < classifier.maxEvokedLatency) &  # logically redundantwith first if statement 
+                            (dur < classifier.minDirectDuration) & # not as long as a direct event
+                            (dur >= classifier.minEvokedDuration) & # but longer than noise event
+                            (amp >= classifier.minEvokedAmplitude)
                             # println("set evoked: ", i, " ", j, " ", lat)
                             class = "evoked"  # assign putative class
                         end
                     end
                 end
 
-                if (class == "noise") & ((amp > classifier.minEvAmp) & (dur > classifier.minEvDur)) # not direct or evoked
+                if (class == "spontaneous") &  # see if event qualifies as sponeaneous 
+                    (amp < classifier.minSpontaneousAmplitude) |
+                    (dur < classifier.minSpontaneousDuration) # not direct or evoked
                     # so see if is valid "event" to put in the spontaneous class
                     # println("Assigned to spont: ", i, " ", j, " ", amp, " ", dur)
-                    class = "spontaneous"
+                    class = "noise"
                 end
                 # println("lat: ", lat, " amp: ", amp, " dur: ", dur, " class: ", class)
                 e = Event(index, i, j, lat, amp, evlat, peakt, rt, dur, ft, class, class)  # note "newclass" is same as class here

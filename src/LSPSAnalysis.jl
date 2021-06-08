@@ -217,15 +217,17 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         extra = false,
     )
     
-    classifier = (
-        minEvAmp = 3.0,
-        minEvDur = 0.5,
-        minEvQ = 0.,
-        minEvLat = 3.0,
-        maxEvLat = 25.0,
-        minDirLat = 0.0,
-        minDirDur = 10.0,
-        minDirRT = 2.0,
+    classifier = (  # parameters for classifying events
+        minEvokedAmplitude = 3.0,
+        minEvokedDuration = 0.3,
+        minEvokedCharge = 0.,  # not implemented
+        minEvokedLatency = 3.0,
+        maxEvokedLatency = 15.0,
+        minDirectLatency = 0.0,
+        minDirectDuration = 10.0,
+        minDirectRisetime = 2.0,
+        minSpontaneousAmplitude = 3.0,
+        minSpontaneousDuration = 0.3
     )
     # s, c, ev, pks, thr = MiniAnalysis.detect_events(mode, idat[:,1:ntr], dt_seconds,
     #         parallel=false, thresh=3.0, tau1=1*1e-3, tau2=3*1e-3, sign=-1,
@@ -300,7 +302,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     # repeat analysis, this time with AJ method now that directs are removed
     println(GREEN_FG, "Detecting events, with AJ")
     mode = "AJ"
-    @time s, c, npks, ev, pks, ev_end, thr = MiniAnalysis.detect_events(
+    @time s, c, npks2, ev2, pks2, ev_end2, thr2 = MiniAnalysis.detect_events(
         mode,
         idat,
         dt_seconds,
@@ -313,22 +315,22 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     )
     template = nothing
     println(GREEN_FG, "Labeling events (classifcation)")
-    @time events = MiniAnalysis.label_events(
+    @time events2 = MiniAnalysis.label_events(
         tdat,
         idat,
-        npks,
-        ev,
-        pks,
-        ev_end,
+        npks2,
+        ev2,
+        pks2,
+        ev_end2,
         template,
-        thr,
+        thr2,
         sign,
         classifier,
         data_info = data_info,
     )
-    println(WHITE_FG, "    Number of events: ", size(events.events)[1])
+    println(WHITE_FG, "    Number of events: ", size(events2.events)[1])
 
-    n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
+    n, df = MiniAnalysis.events_to_dataframe(events2)  # we lose trace info here, but file for LDA etc.
     # newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation
     
 
@@ -336,13 +338,13 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     splitname = splitpath(filename)
     figtitle = joinpath(splitname[end-3:end]...)
     # @time PX = LSPSPlotting.stack_plot(
-    @time PX = LSPSStackPlot.stack_plot2(
+    @time PX = LSPSPlotting.stack_plot(
         df,
         tdat,
         idat,
         data_info,
         sign,
-        events,
+        events2,
         above_zthr,
         mode = mode,
         figurename = "stack_plot1.pdf",

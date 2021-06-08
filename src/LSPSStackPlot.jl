@@ -57,7 +57,7 @@ function stack_plot2(
     elseif makie == "w"
         WGLMakie.activate!()
         whichMakie = WGLMakie
-        resolution = (2000 ,2000)
+        resolution = (1000 ,1000)
         
         println(("activated WGLMakie"))
     else
