@@ -335,7 +335,8 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
 
     splitname = splitpath(filename)
     figtitle = joinpath(splitname[end-3:end]...)
-    @time PX = LSPSPlotting.stack_plot(
+    # @time PX = LSPSPlotting.stack_plot(
+    @time PX = LSPSStackPlot.stack_plot2(
         df,
         tdat,
         idat,
@@ -347,7 +348,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
         figurename = "stack_plot1.pdf",
         figtitle = figtitle,
         maxtraces = ntr,
-        # makie = makie,
+        makie = makie,
     )
     return PX
 end

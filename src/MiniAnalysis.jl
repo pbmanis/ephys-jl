@@ -3,7 +3,7 @@ using Base
 using LsqFit
 using Statistics
 using Printf
-using FindPeaks1D#
+# using FindPeaks1D#
 using Random, Distributions
 using DSP
 using ArraysOfArrays

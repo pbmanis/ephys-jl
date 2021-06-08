@@ -7,6 +7,7 @@ using Printf
 #using GLMakie
 using GLMakie
 using CairoMakie
+using WGLMakie
 
 # whichMakie.activate!()  # interactive first
 using AbstractPlotting
@@ -18,7 +19,6 @@ include("Acq4Reader.jl")
 export stack_plot2
 
 
-
 function stack_plot2(
     df,
     tdat,
@@ -28,7 +28,8 @@ function stack_plot2(
     events,
     above_zthr;
     mode = "Undef",
-    figurename = "",
+    figurename = Union{str, nothing} = nothing,
+    figtitle = "",
     maxtraces = 0,
     makie = "i", # for interactive; other is "p" for pdf output
 )
@@ -46,16 +47,25 @@ function stack_plot2(
     if makie == "i"
         GLMakie.activate!()
         whichMakie = GLMakie
+        resolution = (6000 ,6000)
         println("Activated GLMakie")
     elseif makie == "p"
         resolution = (6000 ,6000)
         CairoMakie.activate!()   
         whichMakie = CairoMakie
         println(("activated CairoMakie"))
+    elseif makie == "w"
+        WGLMakie.activate!()
+        whichMakie = WGLMakie
+        resolution = (2000 ,2000)
+        
+        println(("activated WGLMakie"))
     else
         println("makie must be either i (interactive) or p (pdf)")
         return nothing
     end
+    AbstractPlotting.__init__()
+    
     vspc = 50 * 1e-12
     twin = [0.0, 1.0]
     tmax = maximum(twin) * 1e3 # express in msec
@@ -128,7 +138,7 @@ function stack_plot2(
     idy = reduce(vcat, idy)
     cmap = reduce(vcat, cmap)
     println("Preparing to plot")
-    @time whichMakie.lines!(ax1, idx, idy, linewidth=0.25, color=cmap, colormap=:Paired_10)
+    # @time whichMakie.lines!(ax1, idx, idy, linewidth=0.25, color=cmap, colormap=:Paired_10)
 
     # avg = mean(idat[ipts, above_zthr], dims = 2)
     # rawavg = mean(idat[ipts, :], dims = 2)
@@ -141,9 +151,8 @@ function stack_plot2(
     stx = reduce(vcat, stx)
     sty = reduce(vcat, sty)
     whichMakie.lines!(ax1, stx, sty, linewidth=0.5, color=:lightblue, overdraw=true)
-    sfx = (0.0, 1.0)
-    sfy = (minimum(vertical_offset)-vspc, maximum(vertical_offset)+vspc)# title = plot(
-    # buttons = buttongrid = whichMakie.Button("Reset")
+    # sfx = (0.0, 1.0)
+    # sfy = (minimum(vertical_offset)-vspc, maximum(vertical_offset)+vspc)# title = plot(
     
     if whichMakie == "GLMakie"
         println("Building buttons for GLMakie")
@@ -152,7 +161,7 @@ function stack_plot2(
 
         on(buttons[1].clicks) do n
             whichMakie.xlims!(ax1, sfx)
-            whichMakie.ylims!(ax1,  sfy)
+            whichMakie.ylims!(ax1, sfy)
         end
         on(buttons[2].clicks) do n
             GLMakie.activate!()
@@ -166,10 +175,11 @@ function stack_plot2(
         end
     end
     println("Which Makie: ", whichMakie)
-    display(figure)
     
     if whichMakie == CairoMakie
         save("stack_plot2_cairo.png", figure)
+    else
+        display(figure)
     end
     # save("stack_plot.pdf", figure)  # when done
     return figure

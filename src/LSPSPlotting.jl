@@ -124,7 +124,7 @@ function decorate_and_paint!(
         p_I = plot!(
             p_I,
             [dfr.peaktime*1e-3],
-            [(sign*dfr.amp*1e-12) - vertical_offset],
+            [(sign*dfr.amp*1e-12) .+ vertical_offset],
             seriestype = :scatter,
             markercolor = :red,
             markersize = markersize,
@@ -138,7 +138,7 @@ function decorate_and_paint!(
     p_I = plot!(
         p_I,
         pkt .* 1e-3,
-        (amp .* 1e-12) .- vertical_offset,
+        (amp .* 1e-12) .+ vertical_offset,
         seriestype = :scatter,
         markercolor = markercolor,
         markerstrokecolor = markercolor,
@@ -155,7 +155,7 @@ function decorate_and_paint!(
         p_I = plot!(
             p_I,
             tdat[onset_i:pkend_i],
-            idat[onset_i:pkend_i] .- vertical_offset,
+            idat[onset_i:pkend_i] .+ vertical_offset,
             color = linecolor,
             linewidth = 1.0 * linewidth,
             legend = false,
@@ -194,7 +194,7 @@ function plot_one_trace(
     if isnothing(p_I)
         p_I = plot(
             tdat,
-            idat .- vertical_offset,
+            idat .+ vertical_offset,
             linewidth = linewidth,
             color = linecolor,
             # xlim = [0.0, tmax],# xlabel="Dur (ms)",
@@ -207,7 +207,7 @@ function plot_one_trace(
         p_I = plot!(
             p_I,
             tdat,
-            idat .- vertical_offset,
+            idat .+ vertical_offset,
             linewidth = linewidth,
             color = linecolor,
             legend = false,
@@ -215,7 +215,6 @@ function plot_one_trace(
 
 
     end
-
     p_I = decorate_and_paint!(
         p_I,
         tdat,
@@ -303,6 +302,7 @@ function fit_and_plot_events(p_raw, p_sub, x, y, color; mindy::Float64=-1e2)
     return p_raw, p_sub, y0
 end
 
+
 function finalize_fitted_plot(p1, p2)
     if (p1 == nothing) | (p2 == nothing)
         return nothing
@@ -349,17 +349,15 @@ function stack_plot(
     if (maxtraces > 0) & (maxtraces < ntraces)
         ntraces = maxtraces
     end
-
-    p_I = 0
     vertical_offset = Array{Float64,1}(undef, (ntraces))
     for i = 1:ntraces
-        vertical_offset[i] = i * vspc
+        vertical_offset[i] = (i-1) * vspc
     end
-    top_lims = maximum(vertical_offset)
-    # print("toplims: ", top_lims)
-    bot_lims = minimum(vertical_offset)
+    top_lims = vspc * (ntraces+1)
+    bot_lims = - vspc
     ylims = [bot_lims, top_lims]
-
+    println("ylims: ", ylims)
+    
     p_I = nothing
     @timed for i = 1:ntraces
         # println("Plotting trace: ", i)
@@ -379,23 +377,7 @@ function stack_plot(
             linecolor = lc,
             linewidth = lw,
         )
-        if i == 1
-            println("i = 1")
-            sfx = (-0.1, 1.1)
-            smax = maximum(vertical_offset) - vspc
-            smin = minimum(vertical_offset) + vspc
-            yl = [Float64(smax), 0.]
-            println(vspc)
-            t = yl[1]
-            yl[1] = yl[1] + vspc
-            yl[2] = yl[2] - vspc
-            println(sfx)
-            println(yl)
-            println(maximum(tdat[:, 1]))
-            println(vertical_offset)
-            p_I = plot!(p_I, xlims=sfx) # , ylims=yl)
-            p_I = plot!(p_I, ylims=(-1e-6, 1e-6))
-        end
+
     end
 
     # avg = mean(idat[ipts, above_zthr], dims = 2)
@@ -408,9 +390,9 @@ function stack_plot(
         p_I = plot!(
             p_I,
             [(stim_lats[i], stim_lats[i])],
-            [(0.0, -maximum(vertical_offset))],
+            [(ylims[1], ylims[2])],
             linewidth = 0.5,
-            linecolor = :skyblue,
+            linecolor = :blue,
         )
     end
 
