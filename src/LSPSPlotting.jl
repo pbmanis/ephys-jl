@@ -268,7 +268,7 @@ function plot_one_trace(
 end
 
 
-function fit_and_plot_events(p_raw, p_sub, x, y, color; mindy::Float64=-1e2)
+function fit_and_plot_events(p_raw, p_sub, x, y, color; plotting::Bool=true, mindy::Float64=100.0)
 
     # fits = Vector{Float64}(undef, 4)
     # for i = 1:4
@@ -281,11 +281,10 @@ function fit_and_plot_events(p_raw, p_sub, x, y, color; mindy::Float64=-1e2)
     bestn = 3
     minflag, y0, efit = LSPSFitting.fit_direct(x, y, n=bestn, mindy=mindy)
     
-    # return p_raw, p_sub, y0, minflag
-    
-    # if minflag
-    #     return p_raw, p_sub, y0
-    # end
+    if !plotting
+        return p_raw, p_sub, y0
+    end
+
     if isnothing(p_raw)
         p_raw = plot(x, y, linecolor=color, legend=false)
         p_raw = plot!(p_raw, x, y0, linecolor=color, legend=false, linestyle=:dash)

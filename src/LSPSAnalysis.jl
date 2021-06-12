@@ -7,6 +7,8 @@ using DSP
 using Base.Threads
 using Revise
 using Plots
+using Gtk
+
 ENV["PYTHON"] = "/Users/pbmanis/Desktop/Python/ephys/ephys_venv/bin/python"
 include("Acq4Reader.jl")
 include("MiniAnalysis.jl")
@@ -158,13 +160,40 @@ end
 
 
 
-function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ", maxtr=0, makie="i")
+function LSPS_analyze(;fits = true, 
+    saveflag = false, mode = "AJ", maxtr=0, makie="i", 
+    mindy=10.0, adjust=false)
+    #=
+    present user with a file selector interface; exit if canceled.
+    otherwise try to do analysis on the directory
+    =#
+    filename = ""
+    while filename == ""
+        filename = open_dialog("Select Dataset Folder", action=GtkFileChooserAction.SELECT_FOLDER)
+        println(filename)
+        if (filename != "") & isdir(filename)
+            LSPS_read_and_plot(filename=filename, fits=fits, saveflag=saveflag, mode=mode,
+            maxtr = maxtr, makie=makie, mindy=mindy,
+            adjust=adjust)
+            filename = ""
+        elseif filename == ""
+            return
+        end
+    end
+end
+    
+function LSPS_read_and_plot(;filename::String="", fits = true, 
+    saveflag = false, mode = "AJ", maxtr=0, makie="i", 
+    mindy=10.0, adjust=false)
+    println(GREEN_FG, "Reading Data File, V0.5")
+    println(GREEN_FG, "Filename: ", filename)
+    
     #=
     Read an HDF5 file, do a little analysis on the data
         -- ivs and fitting
     and plot the result
     =#
-    println(GREEN_FG, "Reading Data File, V0.5")
+    
     @time tdat, idat, vdat, data_info = Acq4Reader.read_hdf5(filename)
     # top_lims, bot_lims = Acq4Reader.get_lims(data_info["clampstate"]["mode"])
     maxt = 1.0
@@ -262,7 +291,7 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     println(WHITE_FG, "    Number of events: ", size(events.events)[1])
 
     n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
-    newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation
+    # newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation
 
     # println(GREEN_FG, "Plotting distributions")
     # @time u = LSPSPlotting.plot_event_distributions(df, figurename="mini_event_distributions.pdf")  #distributionsdon't care about trace
@@ -273,17 +302,25 @@ function LSPS_read_and_plot(filename; fits = true, saveflag = false, mode = "AJ"
     nextracted = size(extracted)[1]
     p_ex = nothing
     p_diff = nothing
-    CList = cgrad(:Paired_10, nextracted, categorical=true)
-    
+    println(nextracted)
+    if nextracted > 0
+        CList = cgrad(:Paired_10, nextracted, categorical=true)
+    else
+        CList = []
+    end
+    println("mindy: ", mindy)
     for i in 1:nextracted
         ex = extracted[i]
-        p_ex, p_diff, yfit = LSPSPlotting.fit_and_plot_events(p_ex, p_diff, ex.tdat, ex.idat, CList[2], mindy=-1e2)
+        p_ex, p_diff, yfit = LSPSPlotting.fit_and_plot_events(p_ex, p_diff, ex.tdat, ex.idat, 
+                CList[2], plotting=adjust, mindy=mindy)
         ysub = ex.idat .- yfit
         tr = ex.trace
         idat[ex.onset:ex.pkend, ex.trace] .= ysub
     end
-    # px = LSPSPlotting.finalize_fitted_plot(p_ex, p_diff)
-    # return px
+    if adjust
+        px = LSPSPlotting.finalize_fitted_plot(p_ex, p_diff)
+        return
+    end
     #
     # println(GREEN_FG, "Plotting traces and annotations", WHITE_FG)
     # @time PX = LSPSPlotting.stack_plot(

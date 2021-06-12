@@ -13,7 +13,14 @@ using SharedArrays  # important for parallel/looping
 using InteractiveUtils
 
 using PyCall
-pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader... 
+# pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader...
+
+# Theoretically, the following should work, but we encounter an error:
+# "[NameError: name 'array' is not defined]")
+# on the scanner target array structure with lots of "array([ 0.00157848,  0.003536  ])"
+scriptdir = @__DIR__
+pushfirst!(PyVector(pyimport("sys")."path"), scriptdir)
+pgc = pyimport("python.configfile")  # use a local python routine to read the config files
 
 export read_hdf5, get_lims, get_stim_times
 
@@ -47,7 +54,7 @@ function read_hdf5(filename)
     vdat = Array{Float64}(undef)
     tdat = Array{Float64}(undef)
     nsweeps = size(sweeps)[1]
-    println(WHITE_FG, "    Nsweeps: ")
+    println(WHITE_FG, "    Nsweeps: ", nsweeps)
     # temporary allocation so we don't lose scope on arrays
     nwave = 1
     s_idat = SharedArray{Float64,2}((nwave, nsweeps))
@@ -255,9 +262,18 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
     return time, data, data_info
 end
 
+function test_configread()
+    filename = "/Users/pbmanis/Desktop/2018.09.27_000/ImageSequence_000/.index"
+    data = pgc.readConfigFile(filename)
+    println(data)
+    fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
+    data = pgc.readConfigFile(fn)
+    println(data)
+end
+    
 function test_reader()
     # local test file name
-    filename = "/Volumes/Pegasus_002/ManisLab_Data3/Kasten_Michael/ChATIREScre_ai32/2021.02.17_000/slice_000/cell_001/CCIV_long_001/"
+    filename = "/Volumes/Pegasus/ManisLab_Data3/Kasten_Michael/Pyramidal/2018.02.12_000/slice_001/cell_000/CCIV_1nA_max_000"
     read_hdf5(filename)
 end
 

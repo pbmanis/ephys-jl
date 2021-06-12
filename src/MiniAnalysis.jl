@@ -507,6 +507,7 @@ function zero_crossings(
         Tuple{Int64,Float64,Float64,Float64,Float64,Float64,Bool,Bool},
     },
 )
+    crit = zeros(Float64, size(data)[1])
 
     minDuration = pars.minDuration
     minPeak = pars.minPeak
@@ -526,6 +527,23 @@ function zero_crossings(
     x = collect(range(0.0, size(data)[1] - 1, step = 1.0))
 
     # handle pairwise conditions for positive and negative crossings
+    println("ncrosses, pcrosses: ", ncrosses, " ", size(ncrosses), " ", pcrosses, " ", size(pcrosses))
+    if (size(ncrosses)[1] == 0) | (size(pcrosses)[1] == 0)
+        println("leaving as no event found: pars.extra = ", pars.extra)
+        if pars.extra  # return other information
+            events = (
+                durs = [],
+                amps = [],
+                sums = [],
+                indx = [],
+                ipeak = [],
+            )
+            return data, crit, events
+        else
+            return data, crit
+        end    
+    end
+    println("found some events")
     if ncrosses[1] < pcrosses[1]
         np = true
     else
@@ -617,7 +635,6 @@ function zero_crossings(
     if pars.checkplot
         plot_measures(x, data, crosses, events, labx = "Dur (ms)", laby = "Amp (ms)")
     end
-    crit = zeros(Float64, size(data)[1])
     crit[ev_index] .= 1.0
     if pars.extra  # return other information
         return data, crit, events
@@ -747,7 +764,7 @@ function identify_events(wave, crit, thr, dt, sign; thresh = 3.0, ev_win = 5e-3)
     find events crossing threshold - these are onsets
     Operates on a single trace
     =#
-    # println("thr, sign: ", thr, " ", sign, " ", maximum(crit))
+
     ev = findall((crit[1:end-1] .> thr))
     if ev == []  # no events found!
         return [], [], thr
@@ -756,19 +773,26 @@ function identify_events(wave, crit, thr, dt, sign; thresh = 3.0, ev_win = 5e-3)
     evn = findall(diff(ev) .> 1) .+ 1
     ev = ev[evn]
     swin = floor(Int, ev_win / dt)
-
     # find points for maximum and end of event
     pks = zeros(Int64, (size(ev)[1]))
     ev_end = zeros(Int64, (size(ev)[1]))
     maxn = size(ev)[1]
     k = 1
     for iev in ev
-        if iev + swin < size(wave)[1]
+        if (iev + swin) < size(wave)[1]
             if sign == -1
                 iend = findfirst((wave[iev:end-1] .<= 0) .& (wave[iev+1:end] .> 0)) # define end as first crossing
+                if iend == nothing # it is possible to go off end of waveform
+                    maxn -= 1
+                    continue
+                end
                 ipk = argmin(wave[iev:(iev+iend)])
             else
                 iend = findfirst((wave[iev:end-1] .>= 0) .& (wave[iev+1:end] .< 0))
+                if iend == nothing
+                    maxn -= 1
+                    continue
+                end
                 ipk = argmax(wave[iev:(iev+iend)])
             end
             pks[k] = ipk + iev - 1
