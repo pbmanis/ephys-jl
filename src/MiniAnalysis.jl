@@ -15,6 +15,7 @@ using SharedArrays  # important for parallel/looping
 using Base.Threads
 using FFTW
 using ForwardDiff
+using Peaks
 using DataFrames
 # using OnlineStats
 #using BenchmarkTools  Throws error in package
@@ -157,8 +158,7 @@ Scatter of pairs of datasets, with marginal distributions
 """
 
 function compare_plots(x, y; labx = "", laby = "", binsx = 25, binsy = 25, ms = 2)
-    println("max y: ", maximum(y))
-    p2 = plot(
+	p2 = plot(
         x,
         y,
         seriestype = :scatter,
@@ -173,7 +173,7 @@ function compare_plots(x, y; labx = "", laby = "", binsx = 25, binsy = 25, ms = 
         # subplot = 1,
         framestyle = :box,
     )
-    p3 = plot(
+	p3 = plot(
         x,
         seriestype = :histogram,
         bins = binsx,
@@ -191,7 +191,6 @@ function compare_plots(x, y; labx = "", laby = "", binsx = 25, binsy = 25, ms = 
         ylim = [0, maximum(y)],
         xlabel = laby,
     )
-
     return (scatter = p2, mx = p3, my = p4)
 end
 
@@ -623,7 +622,7 @@ function zero_crossings(
     ev_sum = ev_sum[1:k]
     ev_peak_index = ev_peak_index[1:k]
     ev_dur = ev_dur[1:k]
-
+	println("K events: ", k)
     crosses = (ncrosses = ncrosses, pcrosses = pcrosses)
     events = (
         durs = ev_dur .* 1e3,
@@ -653,7 +652,6 @@ function make_template(;
     tdelay = 0.0,
 )
 
-    idelay = floor(Int, tdelay / dt_seconds)
     t_psc = collect(range(0.0, tmax + tdelay, step = dt_seconds)) # collect(0:dt_seconds:(tmax+tdelay))
 
     Aprime = (taus[2] / taus[1])^(taus[1] / (taus[1] - taus[2]))
@@ -702,10 +700,14 @@ end
 function make_test_waveforms(;
     N = 1,
     rate = 5.0,
-    maxt = 5.0,
+    amp = 20e-12,
+	amp_sigma=0.3,
+	noise_amp=20e-12,
+	maxt = 5.0,
     lpf = 3000.0,
     taus = [1e-3, 3e-3],
     sign = -1,
+	
 )
     #=
     Make test waveforms, consisting of events with exp distribution,
@@ -731,10 +733,10 @@ function make_test_waveforms(;
     for i = 1:N
         Random.seed!(42 + i)
         d = Exponential(1.0 / rate)
-        i_noise = Normal(1.0, 0.3) * 20e-12
+        i_noise = Normal(1.0, amp_sigma) * amp
         event_variance = rand(i_noise, nevents)
         evtx = cumsum(rand(d, nevents))
-        noise = Normal(0, 1) * 0.25e-12
+        noise = Normal(0, 1) * noise_amp
         noise_add = rand(noise, size(t_wave)[1])
         evta = zeros(Float64, (size(t_wave)[1], 1)) .+ noise_add
         k = 1
@@ -758,54 +760,77 @@ function make_test_waveforms(;
 
 end
 
-
-function identify_events(wave, crit, thr, dt, sign; thresh = 3.0, ev_win = 5e-3)
+	
+function identify_events(wave, crit, thr, dt, sign; min_dur=2.5e-4, thresh = 3.0, ev_win = 5e-3)
     #=
-    find events crossing threshold - these are onsets
+    Identify events crossing threshold - these are onsets
     Operates on a single trace
+	wave is the waveform that evetns will be identified on
+	crit is the criterion waveform that is tested (result )
+	min_dur is the minimum duration of an event, in msec. 
+		candidate events shorter that this duration are skipped.
     =#
+    # ev = findall((crit[1:end-1] .> thr))
+    # if ev == []  # no events found!
+    #     return [], [], [], []
+    # end
+    # ev = insert!(ev, 1, 0)
+    # evn = Int.(findall(diff(ev) .> 1) .+ 2.) # find event starts - points with more than 1 point prior
 
-    ev = findall((crit[1:end-1] .> thr))
-    if ev == []  # no events found!
-        return [], [], thr
-    end
-    ev = insert!(ev, 1, 0)
-    evn = findall(diff(ev) .> 1) .+ 1
-    ev = ev[evn]
-    swin = floor(Int, ev_win / dt)
-    # find points for maximum and end of event
+	pkcrits, vals = findmaxima(crit)
+	pkcrits, proms = peakproms(pkcrits, crit)
+	pkcrits, widths, leftedge, rightedge = peakwidths(pkcrits, crit, proms, minwidth=5)
+	det_events = peakproms!(pkcrits, crit; minprom=thr)
+	ev = det_events[1]	# reduce list to starts
+	swin = floor(Int, ev_win / dt)
+    # find points for maximum (peak) and end of each event
+    onsets = zeros(Int64, (size(ev)[1]))
     pks = zeros(Int64, (size(ev)[1]))
     ev_end = zeros(Int64, (size(ev)[1]))
-    maxn = size(ev)[1]
     k = 1
+	evn = 0
     for iev in ev
-        if (iev + swin) < size(wave)[1]
-            if sign == -1
-                iend = findfirst((wave[iev:end-1] .<= 0) .& (wave[iev+1:end] .> 0)) # define end as first crossing
-                if iend == nothing # it is possible to go off end of waveform
-                    maxn -= 1
-                    continue
-                end
-                ipk = argmin(wave[iev:(iev+iend)])
-            else
-                iend = findfirst((wave[iev:end-1] .>= 0) .& (wave[iev+1:end] .< 0))
-                if iend == nothing
-                    maxn -= 1
-                    continue
-                end
-                ipk = argmax(wave[iev:(iev+iend)])
-            end
-            pks[k] = ipk + iev - 1
-            if iend != nothing
-                evt = iev + ipk + iend - 2
-                ev_end[k] = minimum((size(wave)[1], evt))
-            end
-            k += 1
-        else
-            maxn -= 1  # event goes beyond end, so delete it
-        end
+        evn += 1
+		if iev < ev[end]
+			next_ev = ev[evn+1] # onset of next event
+		else
+			next_ev = length(wave)-1  # end of the waveform
+		end
+			# only look until the start of the next event.
+        iend = findfirst((sign.*wave[iev:next_ev] .> 0) .& (sign.*wave[iev+1:(next_ev+1)] .<= 0)) # define end as first zero crossing after the peak
+        if iend == nothing # it is possible to go off end of waveform 
+			# println("iend not found: ", iev, " next_ev: ", next_ev, " len wave: ", length(wave)-1)
+			if next_ev >= length(wave)
+				# println(" off end of trace ")
+				continue
+			else
+				iend = (next_ev-iev)-1 # force to be the onset time of the next event.
+				# println("Setting iend to: ", iend, " from start: ", iev, " ev: ", iev, " last point: ", iev+iend)
+				# println(" next event at : ", next_ev)
+			end
+		end
+		dur = iend*dt
+		if dur <= min_dur
+			# println("dur < mindur: ", dur, "iev: ", iev, " iend: ", " k: ", k, " thr: ", thr)
+			continue
+		else
+			# println("iend: ", iend, " for iev=", iev)
+			if iend < 20
+				println(sign.*wave[iev:(iev+iend)])
+			end
+			ipk = argmax(sign.*wave[iev:(iev+iend)])
+	        ev_end[k] = iev + iend - 1 # minimum((size(wave)[1], ))
+	        pks[k] = ipk + iev - 1
+			onsets[k] = iev
+			k += 1
+		end
     end
-    return ev[1:maxn], pks[1:maxn], ev_end[1:maxn]
+	# println("Ev all: ", ev)
+	# println("Onsets: ", onsets[1:k-1])
+	# println("Peaks:  ", pks[1:k-1])
+	#     println("ev end: ", ev_end[1:k-1])
+
+	return onsets[1:k-1], pks[1:k-1], ev_end[1:k-1], ev
 end
 
 """
@@ -905,19 +930,24 @@ function detect_events(
         evx = SharedArray{Int64,2}((nwave, n_traces))  # event onsets
         pksx = SharedArray{Int64,2}((nwave, n_traces))  # event peaks
         ev_endx = SharedArray{Int64,2}((nwave, n_traces))  # event peaks
+        ev_all = SharedArray{Int64,2}((nwave, n_traces))  # event peaks
+
         nppks = SharedArray{Int64,1}((n_traces))
         @time @threads for i = 1:n_traces
-            eva, pksa, evenda = identify_events(idat[:, i], c[:, i], thr, dt_seconds, sign)
+            eva, pksa, evenda, ev = identify_events(idat[:, i], c[:, i], thr, dt_seconds, sign)
             nppks[i] = size(eva)[1]
             if nppks[i] > 0
                 evx[1:nppks[i], i] = eva
                 pksx[1:nppks[i], i] = pksa
                 ev_endx[1:nppks[i], i] = evenda
+				ev_all[1:size(ev)[1], i] = ev
+				println("length of main event list ev: ", size(ev))
             end
         end
         ev = Array{Array{Int64}}(undef, (n_traces))  # event onsets
         pks = Array{Array{Int64}}(undef, (n_traces))  # event peaks
         ev_end = Array{Array{Int64}}(undef, (n_traces))  # event peaks
+        ev_allev = Array{Array{Int64}}(undef, (n_traces))  # event peaks
         npks = Array{Int64}(undef, (n_traces))
         for i = 1:n_traces
             npks[i] = nppks[i]
@@ -925,6 +955,7 @@ function detect_events(
                 ev[i] = evx[1:npks[i], i]
                 pks[i] = pksx[1:npks[i], i]
                 ev_end[i] = ev_endx[1:npks[i], i]
+                ev_allev[i] = ev_all[:, i]
             end
         end
 
@@ -933,19 +964,20 @@ function detect_events(
         ev = Array{Array{Int64}}(undef, (n_traces))  # event onsets
         pks = Array{Array{Int64}}(undef, (n_traces))  # event peaks
         ev_end = Array{Array{Int64}}(undef, (n_traces))  # event peaks
+        ev_allev = Array{Array{Int64}}(undef, (n_traces))  # event peaks
         npks = Array{Int64,1}(undef, (n_traces))
         @time for i = 1:n_traces
-            ev[i], pks[i], ev_end[i] =
+            ev[i], pks[i], ev_end[i], ev_allev[i] =
                 identify_events(idat[:, i], c[:, i], thr, dt_seconds, sign)
             npks[i] - size(ev[i])[1]
         end
     end
     println(WHITE_FG, "    Identification Complete")
-    return s, c, npks, ev, pks, ev_end, thr
+    return s, c, npks, ev, pks, ev_end, ev_allev, thr
 
 end
 
-function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, sign)
+function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, ev_allev, template, thr, sign)
     nwave = size(idat)[1]
     N_tests = size(idat)[2]
 
@@ -960,6 +992,12 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
     evamps = Vector{Float64}()
     evdurs = Vector{Float64}()
     evlats = Vector{Float64}()
+	for i = 1:N_tests
+        append!(evamps, idat[pks[i], i] .* sign .* 1e12)
+        append!(evdurs, (ev_end[i] .- ev[i]) .* dt_seconds .* 1e3)
+        evl = t_psc[ev[i], i]
+	end
+	
     for i = 1:N_tests
         if npks[i] == 0
             continue
@@ -994,10 +1032,10 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
             t_psc[ev[i], i],
             idat[ev[i], i],
             seriestype = :scatter,
-            markercolor = "yellow",
-            markerstrokecolor = "black",
+            markercolor = "green",
+            markerstrokecolor = "green",
             markerstrokewidth = 0.1,
-            markersize = 2.5,
+            markersize = 2.75,
         )
         # plot peaks of events
         p1 = plot!(
@@ -1008,7 +1046,7 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
             markercolor = "red",
             markerstrokecolor = "red",
             markerstrokewidth = 0.1,
-            markersize = 2.5,
+            markersize = 3.0,
         )
         # plot end of events
         p1 = plot!(
@@ -1016,12 +1054,24 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
             t_psc[ev_end[i], i],
             idat[ev_end[i], i],
             seriestype = :scatter,
-            markercolor = "blue",
-            markerstrokecolor = "blue",
+            markercolor = "cyan",
+            markerstrokecolor = "cyan",
             markerstrokewidth = 0.1,
-            markersize = 2.5,
+            markersize = 3.0,
         )
 
+        p1 = plot!(
+            p1,
+            t_psc[ev_allev[i], i],
+            idat[ev_allev[i], i],
+            seriestype = :scatter,
+            markercolor = "coral1",
+            markerstrokecolor = "coral1",
+            markerstrokewidth = 1,
+			markershape = :vline,
+            markersize = 16,
+        )
+		
         # plot scale value returned
         if i == 1
             p2 = plot(
@@ -1073,7 +1123,8 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
             )
             p3 = plot!(p3, thrx, thrline, linecolor = "green", legend = false)
         end
-        if i == 1
+
+		if i == 1
             if template != nothing
                 p4 = plot(
                     t_psc[1:size(template)[1]],
@@ -1099,9 +1150,7 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
                 )
             end
         end
-        append!(evamps, idat[pks[i], i] .* sign .* 1e12)
-        append!(evdurs, (ev_end[i] .- ev[i]) .* dt_seconds .* 1e3)
-        evl = t_psc[ev[i], i]
+ 
         # append!(evlats, t_psc[ev[i], i])
         # if i == 1
         #     p5 = plot(
@@ -1146,7 +1195,7 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
                 e [f1{0.75w,0.15h}; f2{1.0w,0.8h} f3{1h,0.15w}]
             ]
         )
-        plot(
+		plot(
             title,
             p1,
             p2,
@@ -1155,7 +1204,9 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
             hp.mx,
             hp.scatter,
             hp.my,
-            layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
+            layout = l, 
+			link = :x,
+			# grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
         ) #, 0.30, 0.30]))
 
     else
@@ -1176,7 +1227,9 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, si
             hp.mx,
             hp.scatter,
             hp.my,
-            layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
+            layout = l,
+			link = :x,
+			# grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
         ) #, 0.30, 0.30]))
     end
 
@@ -1187,10 +1240,12 @@ end
 
 
 function testdetector(
-    mode = "CB";
+    mode = "AJ";
     parallel = false,
     N = 1,
     thresh = 3.0,
+	noise = 1e-12,
+	amp_sigma = 0.0,
     tau1 = 1 * 1e-3,
     tau2 = 3 * 1e-3,
     sign = 1,
@@ -1208,8 +1263,8 @@ function testdetector(
     end
     N_tests = N
     t_psc, idat, dt_seconds, template =
-        make_test_waveforms(N = N_tests, taus = [tau1, tau2], sign = sign)
-    s, c, npks, ev, pks, ev_end, thr = detect_events(
+        make_test_waveforms(N = N_tests, amp=10e-12, amp_sigma=amp_sigma, noise_amp=noise, taus = [tau1, tau2], sign = sign)
+    s, c, npks, ev, pks, ev_end, ev_allev, thr = detect_events(
         mode,
         idat,
         dt_seconds,
@@ -1220,20 +1275,21 @@ function testdetector(
         sign = sign,
         zcpars = zcpars,
     )
-    # u = plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, template, thr, sign)
-    u = LSPSPlotting.plot_event_distributions(
-        t_psc,
-        idat,
-        s,
-        c,
-        npks,
-        ev,
-        pks,
-        ev_end,
-        template,
-        thr,
-        sign,
-    )
+    println("")
+	u = plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, ev_allev, template, thr, sign)
+    # u = LSPSPlotting.plot_event_distributions(
+    #     t_psc,
+    #     idat,
+    #     s,
+    #     c,
+    #     npks,
+    #     ev,
+    #     pks,
+    #     ev_end,
+    #     template,
+    #     thr,
+    #     sign,
+    # )
     # savefig("mini_events.pdf")
 end
 
