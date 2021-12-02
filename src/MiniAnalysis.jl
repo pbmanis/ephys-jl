@@ -22,7 +22,7 @@ using DataFrames
 
 #ENV["MPLBACKEND"] = "MacOSX"
 using Plots
-pyplot()
+# pyplot()
 
 include("LSPSPlotting.jl")
 include("Acq4Reader.jl")

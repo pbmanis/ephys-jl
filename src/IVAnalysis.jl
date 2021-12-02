@@ -119,8 +119,8 @@ function IV_read_and_plot(filename, fits = true, ivs = true, analyze_spikes = tr
     tmax = maximum(tdat[:, 1])
     if ivs
         p0 = plot(
+        hcat(im[1, :], imp[1, :]),
             hcat(vm[1, :], vm[1, :]),
-            hcat(im[1, :], imp[1, :]),
             line = true,
             w = 3.0,
             m = 5,

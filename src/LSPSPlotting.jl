@@ -7,7 +7,7 @@ using Statistics
 using Printf
 # ENV["MPLBACKEND"] = "MacOSX"
 using Plots
-pyplot()
+# pyplot()
 
 include("LSPSFitting.jl")
 include("Acq4Reader.jl")

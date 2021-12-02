@@ -114,6 +114,7 @@ function read_hdf5(filename)
         finalize(s_idat)
         finalize(s_vdat)
         @everywhere GC.gc()
+		println("mode: ", mode)
         throw(ErrorException("No acquisition mode found"))
     end
     idat = deepcopy(s_idat)
@@ -273,8 +274,9 @@ end
     
 function test_reader()
     # local test file name
-    filename = "/Volumes/Pegasus/ManisLab_Data3/Kasten_Michael/Pyramidal/2018.02.12_000/slice_001/cell_000/CCIV_1nA_max_000"
-    read_hdf5(filename)
+    #filename = "/Volumes/Pegasus/ManisLab_Data3/Kasten_Michael/Pyramidal/2018.02.12_000/slice_001/cell_000/CCIV_1nA_max_000"
+    filename = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV_1nA_max_1s_pulse_000"
+	read_hdf5(filename)
 end
 
 
