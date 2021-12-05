@@ -401,7 +401,7 @@ end
 """
 The data structure EventTrace holds information about
 an individual event - it's type, the waveform,
-the trace number it cme from, and the index for the
+the trace number it came from, and the index for the
 start and end of the event (from the zero-crossing algorithm)
 Typically, this would be used as an element in a vector holding
 a group of events. The vector here is loaded up by extract_events,
@@ -488,8 +488,8 @@ Makes the following assumptions about the signal:
   - Events last more than minDuration time
   Return an array of events where each row is (start, length, sum, peak)
 
-
 """
+
 function zero_crossings(
     data::Array{Float64,1},
     pars::NamedTuple{

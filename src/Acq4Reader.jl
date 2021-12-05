@@ -1,3 +1,4 @@
+__precompile__()
 module Acq4Reader
 using Statistics
 using HDF5
@@ -13,6 +14,7 @@ using SharedArrays  # important for parallel/looping
 using InteractiveUtils
 
 using PyCall
+
 # pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader...
 
 # Theoretically, the following should work, but we encounter an error:
@@ -41,7 +43,7 @@ function read_hdf5(filename)
     #=
     Read the protocol data from the specified metaarray file,
     treating it as an HDF5 file (which it is)
-            
+
     Return the data, and some "standard" y limits.
     New parallel version, 5/24/2021 pbm
     =#
@@ -74,8 +76,8 @@ function read_hdf5(filename)
         if time == false
             continue
         end
- # will be VC, IC or IC=0 (may depend on age of acquisition code)
-        sweep_mode = String(data_info["clampstate"]["mode"]) 
+        # will be VC, IC or IC=0 (may depend on age of acquisition code)
+        sweep_mode = String(data_info["clampstate"]["mode"])
         if first
             mode = sweep_mode
         else
@@ -114,7 +116,7 @@ function read_hdf5(filename)
         finalize(s_idat)
         finalize(s_vdat)
         @everywhere GC.gc()
-		println("mode: ", mode)
+        println("mode: ", mode)
         throw(ErrorException("No acquisition mode found"))
     end
     idat = deepcopy(s_idat)
@@ -125,10 +127,19 @@ function read_hdf5(filename)
     if haskey(cf["."]["devices"], "Laser-Blue-raw")
         wavefunction =
             cf["."]["devices"]["Laser-Blue-raw"]["channels"]["pCell"]["waveGeneratorWidget"]["function"]
-    else
+	    data_info["Laser.wavefunction"] = deepcopy(wavefunction)
+    elseif haskey(cf["."]["devices"], "MultiClamp1")
+	    wavefunction =
+	        cf["."]["devices"]["MultiClamp1"]["waveGeneratorWidget"]["function"]
+	    data_info["MultiClamp1.wavefunction"] = deepcopy(wavefunction)
+		data_info["MultiClamp1.pulse_pars"] = [
+			cf["."]["devices"]["MultiClamp1"]["waveGeneratorWidget"]["stimuli"]["Pulse"]["start"]["value"],
+			cf["."]["devices"]["MultiClamp1"]["waveGeneratorWidget"]["stimuli"]["Pulse"]["length"]["value"],
+			]
+	
+	else
         wavefunction = nothing
     end
-    data_info["Laser.wavefunction"] = deepcopy(wavefunction)
     finalize(s_tdat)
     finalize(s_idat)
     finalize(s_vdat)
@@ -199,7 +210,7 @@ end
 #     return stim_lats
 # end
 
-function get_stim_times(data_info; device="Laser")
+function get_stim_times(data_info; device::AbstractString = "Laser")
     #=
     Retrieve stimulus times from a device's wavefunction parameters
     The default will get the information from a Laser device
@@ -271,12 +282,12 @@ function test_configread()
     data = pgc.readConfigFile(fn)
     println(data)
 end
-    
+
 function test_reader()
     # local test file name
     #filename = "/Volumes/Pegasus/ManisLab_Data3/Kasten_Michael/Pyramidal/2018.02.12_000/slice_001/cell_000/CCIV_1nA_max_000"
     filename = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV_1nA_max_1s_pulse_000"
-	read_hdf5(filename)
+    read_hdf5(filename)
 end
 
 

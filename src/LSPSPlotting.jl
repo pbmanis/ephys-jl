@@ -15,7 +15,11 @@ include("Acq4Reader.jl")
 export plot_one_trace, stack_plot, plot_trace, finalize_plot
 export plot_event_distribution
 
-function plot_event_distributions(df; response_window = 25.0, figurename=Union{str, nothing} = nothing)
+function plot_event_distributions(
+    df;
+    response_window = 25.0,
+    figurename = Union{str,nothing} = nothing,
+)
     # d is the dataframe (from miniAnalysis events_to_dataframe)
     binsx = 50
     p_amp = plot(
@@ -82,7 +86,7 @@ function decorate_and_paint!(
     Decorate traces with a dot to indicate the detected peak, 
     then paint the selected part of the trace with a color to indicate
     the event onset/duration and classification
-        
+
     =#
     tmax = maximum(tdat)
     dt_seconds = mean(diff(tdat))
@@ -106,34 +110,34 @@ function decorate_and_paint!(
         dfr = changed_df[i, :]
         # println("changed: ", i, " ", dfr.class)
         if (dfr.class == "evoked") & (dfr.newclass == "direct")
-            markersize=8
+            markersize = 8
             markershape = :dtriangle  # demoted
         elseif (dfr.class == "direct") & (dfr.newclass == "evoked")
-            markersize=8
+            markersize = 8
             markershape = :utriangle # promoted
         elseif (dfr.class == "direct") & (dfr.newclass == "spontaneous")
-            markersize=8
+            markersize = 8
             markershape = :xcross
         elseif (dfr.class == "evoked") & (dfr.newclass == "spontaneous")
-                markersize=8
-                markershape = :plus  # demoted
+            markersize = 8
+            markershape = :plus  # demoted
         else
-            markersize=4
+            markersize = 4
             markershape = :star5  # mark all others
         end
         p_I = plot!(
             p_I,
-            [dfr.peaktime*1e-3],
-            [(sign*dfr.amp*1e-12) .+ vertical_offset],
+            [dfr.peaktime * 1e-3],
+            [(sign * dfr.amp * 1e-12) .+ vertical_offset],
             seriestype = :scatter,
             markercolor = :red,
             markersize = markersize,
             markershape = markershape,
-            legend=false,
-            )
+            legend = false,
+        )
     end
-    
-    
+
+
     # decorate with a dot at the peak using the passed color for the event type
     p_I = plot!(
         p_I,
@@ -169,9 +173,9 @@ function plot_one_trace(
     p_I,
     tdat,
     idat;
-    vertical_offset::Float64=0.0,
+    vertical_offset::Float64 = 0.0,
     eventdf::DataFrame,
-    sign::Int64=1,
+    sign::Int64 = 1,
     linecolor::Union{Symbol,String} = :black,
     linewidth::Float64 = 0.5,
 )
@@ -223,7 +227,7 @@ function plot_one_trace(
         eventdf,
         sign,
         linecolor = :red,
-        linewidth = linewidth*1.5,
+        linewidth = linewidth * 1.5,
         class = "evoked",
         markercolor = :red,
     )
@@ -247,7 +251,7 @@ function plot_one_trace(
         eventdf,
         sign,
         linecolor = :cyan,
-        linewidth = linewidth*0.75,
+        linewidth = linewidth * 0.75,
         class = "spontaneous",
         markercolor = :cyan,
     )
@@ -268,7 +272,15 @@ function plot_one_trace(
 end
 
 
-function fit_and_plot_events(p_raw, p_sub, x, y, color; plotting::Bool=true, mindy::Float64=100.0)
+function fit_and_plot_events(
+    p_raw,
+    p_sub,
+    x,
+    y,
+    color;
+    plotting::Bool = true,
+    mindy::Float64 = 100.0,
+)
 
     # fits = Vector{Float64}(undef, 4)
     # for i = 1:4
@@ -279,24 +291,24 @@ function fit_and_plot_events(p_raw, p_sub, x, y, color; plotting::Bool=true, min
     # end
     # bestn = argmin(fits)
     bestn = 3
-    minflag, y0, efit = LSPSFitting.fit_direct(x, y, n=bestn, mindy=mindy)
-    
+    minflag, y0, efit = LSPSFitting.fit_direct(x, y, n = bestn, mindy = mindy)
+
     if !plotting
         return p_raw, p_sub, y0
     end
 
     if isnothing(p_raw)
-        p_raw = plot(x, y, linecolor=color, legend=false)
-        p_raw = plot!(p_raw, x, y0, linecolor=color, legend=false, linestyle=:dash)
+        p_raw = plot(x, y, linecolor = color, legend = false)
+        p_raw = plot!(p_raw, x, y0, linecolor = color, legend = false, linestyle = :dash)
     else
-        p_raw = plot!(p_raw, x, y, linecolor=color, legend=false)
-        p_raw = plot!(p_raw, x, y0, linecolor=color, legend=false, linestyle=:dash)
+        p_raw = plot!(p_raw, x, y, linecolor = color, legend = false)
+        p_raw = plot!(p_raw, x, y0, linecolor = color, legend = false, linestyle = :dash)
         # println("was not nothing")
     end
     if isnothing(p_sub)
-        p_sub = plot(x, y .- y0, linecolor=color, legend=false)
+        p_sub = plot(x, y .- y0, linecolor = color, legend = false)
     else
-        p_sub = plot!(p_sub, x, y .- y0, linecolor=color, legend=false)
+        p_sub = plot!(p_sub, x, y .- y0, linecolor = color, legend = false)
     end
     return p_raw, p_sub, y0
 end
@@ -311,7 +323,7 @@ function finalize_fitted_plot(p1, p2)
     ylabel!(p1, "I (A)")
     xlabel!(p2, "T (sec)")
     ylabel!(p2, "I (A)")
-    PX =  plot(p1, p2, layout=l, size = (600, 600), show = true)
+    PX = plot(p1, p2, layout = l, size = (600, 600), show = true)
     return PX
 end
 
@@ -326,9 +338,9 @@ function stack_plot(
     above_zthr;
     mode = "Undef",
     figtitle = "",
-    figurename = Union{str, nothing} = nothing,
+    figurename = Union{str,nothing} = nothing,
     maxtraces = 0,
-    makie = "" # ignored - just for compatability with LSPSStackPlot.stack_plot2
+    makie = "", # ignored - just for compatability with LSPSStackPlot.stack_plot2
 )
     #=
     Make a stacked set of plots
@@ -351,13 +363,13 @@ function stack_plot(
     end
     vertical_offset = Array{Float64,1}(undef, (ntraces))
     for i = 1:ntraces
-        vertical_offset[i] = (i-1) * vspc
+        vertical_offset[i] = (i - 1) * vspc
     end
-    top_lims = vspc * (ntraces+1)
-    bot_lims = - vspc
+    top_lims = vspc * (ntraces + 1)
+    bot_lims = -vspc
     ylims = [bot_lims, top_lims]
     println("ylims: ", ylims)
-    
+
     p_I = nothing
     @timed for i = 1:ntraces
         # println("Plotting trace: ", i)
@@ -373,7 +385,7 @@ function stack_plot(
             idat[ipts, i],
             vertical_offset = vertical_offset[i],
             eventdf = df[in([i]).(df.trace), :],
-            sign=sign,
+            sign = sign,
             linecolor = lc,
             linewidth = lw,
         )
@@ -385,7 +397,7 @@ function stack_plot(
     # p_avg = plot(tdat[ipts, 1], rawavg * 1e12, w = 0.2, linecolor = "gray")
     # p_avg = plot!(p_avg, tdat[ipts, 1], avg * 1e12, w = 0.5, linecolor = "blue")
 
-    stim_lats = 1e-3 .* Acq4Reader.get_stim_times(data_info, device="Laser")
+    stim_lats = 1e-3 .* Acq4Reader.get_stim_times(data_info, device = "Laser")
     for i = 1:size(stim_lats)[1]
         p_I = plot!(
             p_I,
@@ -396,10 +408,22 @@ function stack_plot(
         )
     end
     p_I = plot!(p_I, ylims = ylims)
-    labels = Dict("Evoked" => :red, "Direct" => :orange, "Spontaneous" => :gray, "Noise" => "magenta")
+    labels = Dict(
+        "Evoked" => :red,
+        "Direct" => :orange,
+        "Spontaneous" => :gray,
+        "Noise" => "magenta",
+    )
     i = 0
     for (class, color) in labels
-        p_I = plot!(p_I, [0.05+0.1*(i-1)], [ylims[1]-1.1*vspc], linewidth=2, label=class, color=color)
+        p_I = plot!(
+            p_I,
+            [0.05 + 0.1 * (i - 1)],
+            [ylims[1] - 1.1 * vspc],
+            linewidth = 2,
+            label = class,
+            color = color,
+        )
         i += 1
     end
     title = plot(
@@ -412,13 +436,13 @@ function stack_plot(
     )
     l = @layout([a{0.1h}; b])
     p_I = plot(
-        title, 
+        title,
         p_I,
         # layout = l,
         layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
     ) #, 0.30, 0.30]))
 
-    PX =  plot!(p_I, size = (600, 800), show = true)
+    PX = plot!(p_I, size = (600, 800), show = true)
     if figurename != nothing
         savefig(PX, figurename)
     end
