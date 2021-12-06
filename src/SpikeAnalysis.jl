@@ -23,13 +23,6 @@ Spikes holds an array of individual Spike data
 SpikeDetection holds the parameters for the detection algorithm
 =#
 
-# struct VoltageTrace
-#     tdat::Vector{}
-# 	vdat::Vector{}
-#     idat::Vector{}
-#     trace::Int64
-# end
-
 struct Spike
     indices::Tuple{Int64,Int64}
     trace::Int64 # trace of origin
@@ -107,14 +100,12 @@ end
 function HightKalluri(tdat, vdat, idat, pars)
     #=
     Find spikes using a box method:
-    Voltage must be > threshold, and have slope values related
+    Voltage must be > threshold, and have slope values restricted to a range
     Units must be consistent: x, dt, d2 (s or ms)
     Unist must be consistent: y, thr, C1, C2 (V or mV)
     Note: probably works best with mV and ms, given the constants above.
     to C1, C2 and the width dt2
     From Hight and Kalluri, J Neurophysiol., 2016
-    Note: Implementation is in cython (pyx) file in ephys/ephysanalysis
-
     Returns an array of indices in x where spikes occur
     =#
     # parameters for the Hight and Kalluri detecctor
@@ -124,13 +115,11 @@ function HightKalluri(tdat, vdat, idat, pars)
     threshold = pars.threshold
 
     npts = size(vdat)
-    # println("npts: ", npts)
     spikes = zero(vdat)
-    dt = tdat[2] - tdat[1]
-    iwid = round(Int64, dt2 / dt)
-    spike_flag = 0
+    dt = tdat[2] - tdat[1]. # sample rate
+    iwid = round(Int64, dt2 / dt). # width of region to look for slope values
     for i = iwid:(length(vdat)-iwid)
-        if vdat[i] > threshold # exceed threshold
+        if vdat[i] > threshold # when voltage exceeds threshold, check shape
             if (vdat[i] > vdat[i-1]) & (vdat[i] > vdat[i+1])  # local peak
                 if ((vdat[i+iwid] - vdat[i]) < C1) & ((vdat[i] - vdat[i-iwid]) > C2)
                     spikes[i] = 1.0
@@ -144,23 +133,6 @@ function HightKalluri(tdat, vdat, idat, pars)
     spkt = (spike_indices .- 1) .* dt
     spkv = vdat[spike_indices]
     return spkt, spkv, spike_indices
-
-    # # print('boxspikefind: ', spikes)
-    # # spikes = [s[0] for s in spikes] # make into 1-d array
-    # sf = 1.0
-    # if data_time_units == 'ms':
-    #     dt *= 1e3
-    # spikes = np.argwhere(spikes > 0.0) * dt
-    # # print('thr c1 c2: ', thr, C1, C2, dt2)
-    # # print('boxspikefind: ', spikes)
-    # spkt = [s[0] for s in spikes]
-    # # print('spkt: ', spkt)
-    # return spkt
-    # return self.box_spike_find(
-    #     x=x, y=v, dt=dt, thr=thresh, C1=C1, C2=C2, dt2=dt2,
-    #     data_time_units=data_time_units,
-    # )
-
 end
 
 # function findspikes(vtrace, pars)
