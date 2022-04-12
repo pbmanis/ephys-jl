@@ -1,7 +1,7 @@
 # ephys-jl
 
 Julia versions of some of the ephys analysis routines. Faster than the python versions, but
-stripped-down also
+stripped-down also. This is beta code and is not fully tested yet.
 
 Problems appear with PyPlot/PyCall. 
 You may need to install an arm-64 version of miniconda:
