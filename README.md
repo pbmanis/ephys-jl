@@ -17,4 +17,11 @@ Do the "brew install hdf5" separately, and maybe use "reinstall" to force update
 Check that the correct version of Julia is run. May need to modify .zshrc (or .bash_profile or .bash_rc).
 V1.7 is the first version that runs natively on M1 hardware.
 
+using Pkg
+Pkg.activate(".")
+(Pkg.instantiate(), Pkg.upgrade_manifest())activate
+
+or ] (pkg)
+activate
+instantiate
 
