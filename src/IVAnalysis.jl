@@ -234,49 +234,61 @@ function IV_read_and_plot(filename, fits = true, ivs = true, analyze_spikes = tr
     end
 
     tmax = maximum(tdat[:, 1])
+    # plot the IV relationship
     if ivs
         p0 = plot(
-            hcat(im[1, :], imp[1, :]),
-            hcat(vm[1, :], vm[1, :]),
+            hcat(im[1, :], imp[1, :])*1e9,
+            hcat(vm[1, :], vm[1, :])*1e3,
             line = true,
             w = 3.0,
-            m = 5,
+            m = 3.5,
             marker = "circle",
         )
     end
     if analyze_spikes
-        pspk = plot(spk_inj, spk_count, line = true, w = 3.0, m = 5, marker = "circle")
+        pspk = plot(
+            spk_inj*1e9,
+            spk_count, 
+            line = true,
+            w = 3.0, 
+            m = 3.5, 
+            marker = "circle"
+            )
     end
+    # plot the current command traces
+    
     p2 = plot(
-        tdat,
-        idat,
-        xlims = (0, tmax),
-        ylims = top_lims,
+        tdat*1e3,
+        idat*1e9,
+        xlims = (0, tmax*1e3),
+        ylims = (top_lims*1e9, -top_lims*1e9),
         legend = false,
         w = 0.5,
         linecolor = "black",
     )
 
     fnsplit = split(filename, "/")
-    fn = "File: " * fnsplit[end-1] * "/" * fnsplit[end]
+    fn = "File: " * fnsplit[end-3] * "/" * fnsplit[end-2] * "/" * fnsplit[end-1] * "/" * fnsplit[end]
+    # plot the voltage traces
+
     p1 = plot(
-        tdat,
-        vdat,
-        xlims = (0, tmax),
-        ylims = bot_lims,
+        tdat*1e3,
+        vdat*1e3,
+        xlims = (0, tmax*1e3),
+        ylims = (-120, 40),
         legend = false,
         w = 0.3,
         linecolor = "black",
         title = fn,
-        titlefontsize = 10,
+        titlefontsize = 9,
     )
     p3plot = false
     p3 = 0
     if analyze_spikes
         plot!(
             p1,
-            tspikes,
-            vspikes,
+            tspikes * 1e3,
+            vspikes * 1e3,
             line = false,
             w = 3.0,
             m = 2.5,
@@ -296,20 +308,20 @@ function IV_read_and_plot(filename, fits = true, ivs = true, analyze_spikes = tr
             u = length(spk_times[i])
             if first_plot == true
                 p3 = plot(
-                    spk_times[i][1:u-1],
-                    diff(spk_times[i]),
+                    spk_times[i][1:u-1]*1e3,
+                    diff(spk_times[i])*1e3,
                     marker = "circle",
                     markerstrokewidth = 0,
                     m = 2.5,
                     line = true,
                 )
                 first_plot = false
-                plot!(xlabel = "Latency (sec)", ylabel = "ISI (sec)", p3)
+                plot!(xlabel = "Latency (ms)", ylabel = "ISI (ms)", p3)
             else
                 plot!(
                     p3,
-                    spk_times[i][1:u-1],
-                    diff(spk_times[i]),
+                    spk_times[i][1:u-1]*1e3,
+                    diff(spk_times[i])*1e3,
                     marker = "circle",
                     markerstrokewidth = 0,
                     m = 2.5,
@@ -319,10 +331,10 @@ function IV_read_and_plot(filename, fits = true, ivs = true, analyze_spikes = tr
         end
         p3plot = true
     end
-    plot!(xlabel = "T (sec)", ylabel = "V (V)", p1)
-    plot!(xlabel = "T (sec)", ylabel = "I (A)", p2)
-    plot!(xlabel = "I (A)", ylabel = "V (V)", p0)
-    plot!(xlabel = "I (A)", ylabel = "Spikes", pspk)
+    plot!(xlabel = "T (ms)", ylabel = "V (mV)", p1)
+    plot!(xlabel = "T (ms)", ylabel = "I (nA)", p2)
+    plot!(xlabel = "I (nA)", ylabel = "V (mV)", p0)
+    plot!(xlabel = "I (nA)", ylabel = "Spikes", pspk)
     if fits
         plot!(p1, tfit, vfit, w = 0.25, linecolor = "red")
         plot!(p1, tfit2, vfit2, w = 0.25, linecolor = "blue")
@@ -336,7 +348,7 @@ function IV_read_and_plot(filename, fits = true, ivs = true, analyze_spikes = tr
         rightplots = plot(p0, pspk, layout = grid(2, 1, heights = [0.33, 0.33]))
     end
     plot(leftplots, rightplots, layout = l, legend = false, margin = 3mm, rightmargin = 8mm)
-    plot!(size = (800, 1000))
+    plot!(size = (800, 800))
     # plot(p1, p2, p0, layout = grid(2, 2, heights=[0.75, 0.25]), title=("V", "I"))
 end
 
