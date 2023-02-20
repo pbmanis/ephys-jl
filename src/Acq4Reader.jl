@@ -13,7 +13,7 @@ using Distributed
 using SharedArrays  # important for parallel/looping
 # using ProgressMeter
 using InteractiveUtils
-# include("configfile.jl")
+include("configfile.jl")
 
 using PyCall
 
@@ -22,9 +22,9 @@ using PyCall
 # Theoretically, the following should work, but we encounter an error:
 # "[NameError: name 'array' is not defined]")
 # on the scanner target array structure with lots of "array([ 0.00157848,  0.003536  ])"
-scriptdir = @__DIR__
-pushfirst!(PyVector(pyimport("sys")."path"), scriptdir)
-pgc = pyimport("python.configfile")  # use a local python routine to read the config files
+# scriptdir = @__DIR__
+# pushfirst!(PyVector(pyimport("sys")."path"), scriptdir)
+# pgc = pyimport("python.configfile")  # use a local python routine to read the config files
 
 export read_hdf5, get_lims, get_stim_times
 
@@ -49,6 +49,14 @@ function read_hdf5(filename)
     Return the data, and some "standard" y limits.
     New parallel version, 5/24/2021 pbm
     =#
+    
+    okfile = isdir(filename)
+    if !okfile
+        println(RED_FG, "Directory not found:")
+        println("    ", filename, WHITE_FG)
+        error()
+    end
+
     device = "MultiClamp1.ma"
     laser_device = "Laser-Blue-raw.ma"
     photodiode_device = "Photodiode.ma"
@@ -126,7 +134,7 @@ function read_hdf5(filename)
     vdat = deepcopy(s_vdat)
     indexfile = joinpath(filename, ".index")
     println("Reading index file: ", indexfile)
-    cf = pgc.readConfigFile(indexfile)
+    cf = Configfile.readConfigFile(indexfile)
     if haskey(cf["."]["devices"], "Laser-Blue-raw")
         wavefunction =
             cf["."]["devices"]["Laser-Blue-raw"]["channels"]["pCell"]["waveGeneratorWidget"]["function"]
@@ -280,26 +288,27 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
     return time, data, data_info
 end
 
-function test_configread()
-    filename = "/Users/pbmanis/Desktop/2018.02.12_000/slice_001/cell_000/.index"
-    if !isfile(filename) 
-        println("File not found: ", filename)
-        exit()
-    end
-    data = pgc.readConfigFile(filename)
-    println(data)
-    # fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
-    # data = pgc.readConfigFile(fn)
-    # println(data)
-end
+# function test_configread()
+#     # filename = "/Users/pbmanis/Desktop/2018.02.12_000/slice_001/cell_000/.index"
+#     filename = "/Volumes/Pegasus/ManisLab_Data3/Kasten_Michael/HK_Collab/Thalamocortical/Rig4/2023.02.16_000/slice_000/cell_000/CCIV_long_HK_000"
+#     if !isfile(filename) 
+#         println("File not found: ", filename)
+#         exit()
+#     end
+#     data = configfile.readConfigFile(filename)
+#     println(data)
+#     # fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
+#     # data = pgc.readConfigFile(fn)
+#     # println(data)
+# end
 
-function test_reader()
-    # local test file name
-    #filename = "/Volumes/Pegasus/ManisLab_Data3/Kasten_Michael/Pyramidal/2018.02.12_000/slice_001/cell_000/CCIV_1nA_max_000"
-    #filename = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV_1nA_max_1s_pulse_000"
-    filename = "/Users/pbmanis/Desktop/2018.02.12_000/slice_001/cell_000/CCIV_4nA_max_002"
-    read_hdf5(filename)
-end
+# function test_reader()
+#     # local test file name
+#     filename = "/Volumes/Pegasus/ManisLab_Data3/Kasten_Michael/HK_Collab/Thalamocortical/Rig4/2023.02.16_000/slice_000/cell_000/CCIV_long_HK_000"
+#     #filename = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV_1nA_max_1s_pulse_000"
+#     # filename = "/Users/pbmanis/Desktop/2018.02.12_000/slice_001/cell_000/CCIV_4nA_max_002"
+#     read_hdf5(filename)
+# end
 
 
 end

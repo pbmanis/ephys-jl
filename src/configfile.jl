@@ -1,6 +1,8 @@
 module Configfile
 using PyCall
 using JSON
+
+export readConfigFile
 # configfile.jl : based on:
 # 	configfile.py - Human-readable text configuration file library
 # 	Copyright 2010  Luke Campagnola
@@ -141,11 +143,11 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
         ## Measure line indentation, make sure it is correct for this level
         lineInd = measureIndent(thisline)
 
-
         if lineInd < indent
             ln -= 1 # back up one level
             break  # will cause return
-        elseif lineInd > indent
+        end
+        if lineInd > indent
             println("    Indentation is incorrect. Expected ", indent, "  got: ", lineInd, "  on line: ", ln)
             println("        Offending string: ", thisline)
             error("Bad indent")
@@ -160,6 +162,8 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
         values = strip.(values)
         # println("Values: ", values)
         key = values[1]
+        # println("Found key: <", key, ">  *****************************************")
+        # println("len value: ", length(values[2]))
         if length(key) == 0
             error("Missing name preceding colon")
         end
@@ -182,17 +186,21 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
 
             end
 
-        else
-            if (ln+1 >= length(lines)) | (measureIndent(splitlines[ln+1]) <= indent)
+        else  # no argument/value
+            # if key == "."
+            #     val = nothing
+            #     println(" setting root key ")
+            if (ln+1 > length(lines)) | (measureIndent(splitlines[ln+1]) <= indent)
                 # println( "    blank dict for key: ", key)
                 val = nothing
             else
-                # println("************Going deeper..", ln)
+                # println(" >>>> Going deeper..", ln)
                 ln, val = parseConfigString(lines, start=ln+1)
-
             end
         end
+        # println("setting key: ", key, " to value: ", val)
         data[key] = val
+        # println("\n\nKEYS:\n", keys(data))
     end
     return ln, data
 end
@@ -206,24 +214,23 @@ end
 #
 function readConfigFile(fname)
 
-    open(fname, "r") do fd
-        s = read(fd, String)
-        # println(s)
+    try
+        open(fname, "r") do fd
+            s = read(fd, String)
 
-        s = replace(s, "\r\n" => s"\n")
-        s = replace(s, "\r" => s"\n")
-        println("Calling parseString")
-        data = parseConfigString(s)
+            s = replace(s, "\r\n" => s"\n")
+            s = replace(s, "\r" => s"\n")
+            # println("Calling parseString")
+            ln, data = parseConfigString(s)
+            # println("\n\n")
+            # println(keys(data))
+
+            return data
+        end
+    catch
+        println("Error while reading config file: ", fname)
+        error()
     end
-#     except ParseError:
-#         sys.exc_info()[1].fileName = fname
-#         raise
-#     except:
-#         print("Error while reading config file %s:"% fname)
-#         raise
-#     #finally:
-#         #os.chdir(cwd)
-#     return data
 end
 
 # def appendConfigFile(data, fname):
@@ -289,7 +296,7 @@ function filetest()
 
 end
 
-test()
+# test()
 
 
 
