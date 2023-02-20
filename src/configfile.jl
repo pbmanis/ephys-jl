@@ -1,4 +1,6 @@
-module configfile
+module Configfile
+using PyCall
+using JSON
 # configfile.jl : based on:
 # 	configfile.py - Human-readable text configuration file library
 # 	Copyright 2010  Luke Campagnola
@@ -11,8 +13,8 @@ module configfile
 # The configfile is just a text file.
 # This is a pretty straight translation of the original code.
 
-import re, os, sys, datetime
-import numpy
+# import re, os, sys, datetime
+# import numpy
 
 ## Very simple unit support:
 ##  - creates variable names like 'mV' and 'kHz'
@@ -25,29 +27,41 @@ import numpy
 ## No unicode variable names (μ,Ω) allowed until python 3
 
 SI_PREFIXES = "yzafpnum kMGTPEZY"
-UNITS = split=("m,s,g,W,J,V,A,F,T,Hz,Ohm,S,N,C,px,b,B", ",")
-allUnits = {}
-
-function addUnit(p, n):
-    v = 1000**n
-    for u in UNITS:
-        g[p+u] = v
-        allUnits[p+u] = v
-    
-for p in SI_PREFIXES:
-    if p ==  ' ':
-        p = ''
-        n = 0
-    elif p == 'u':
-        n = -2
-    else:
-        n = SI_PREFIXES.index(p) - 8
-
-    addUnit(p, n)
-
+UNITS = split("m,s,g,W,J,V,A,F,T,Hz,Ohm,S,N,C,px,b,B", ",")
+allUnits = Vector{String}()
 cm = 0.01
 
-def evalUnits(unitStr):
+py"""
+# import numpy as np
+def eval_value(arg):
+    return(eval(arg))
+"""
+
+function addUnit(p, n)
+    v = 1000 ^ n
+    for u in UNITS
+        # g[p+u] = v
+        allUnits[p+u] = v
+    end
+end
+
+function make_SI_array(p)
+    for p in SI_PREFIXES
+        if p ===  " "
+            p = ""
+            n = 0
+        elseif p === "u"
+            n = -2
+        else
+            n = SI_PREFIXES.index(p) - 8
+        end
+        addUnit(p, n)
+    end
+end
+
+
+
+function evalUnits(unitStr)
     """
     Evaluate a unit string into ([numerators,...], [denominators,...])
     Examples:
@@ -55,50 +69,134 @@ def evalUnits(unitStr):
         A*s / V   =>  ([A, s], [V,])
     """
     pass
+end
+
     
-def formatUnits(units):
+function formatUnits(units)
     """
     Format a unit specification ([numerators,...], [denominators,...])
     into a string (this is the inverse of evalUnits)
     """
     pass
-    
-def simplify(units):
+end
+
+function simplify(units)
     """
     Cancel units that appear in both numerator and denominator, then attempt to replace 
     groups of units with single units where possible (ie, J/s => W)
     """
     pass
-    
+end
 
-def ColorMap(p, c):
-    return p, list(c)
 
-def Point(p):
+function ColorMap(c)
+    c = replace(c, "ColorMap(array([" => "([")
+    c = replace(c, ", dtype=uint8)" => "")
+    (p, c) = split(c, ", array(", limit=2)
+    c = replace(c, "array(" => "")
+    c = replace(c, ")" => "")
+    return p, c
+end
+
+function Point(p)
     return list(p)
 
+end
+
+function measureIndent(s::AbstractString)
+    n = 1
+    while n <= length(s) && s[n] == ' '
+        n += 1
+    end
+    return n-1
+end
 
 
+# function ParseError(message, lineNum, line, fileName)
+#     println(message, ": ", lineNum, ": ", line)
+# end
+
+function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Bool = false)
+
+    data = Dict()  # store parsed data at this level in a dictionary
+
+    splitlines = [li for li in split(lines, "\n", keepempty=false) ] # break by line breaks
+    splitlines = [sl for (i, sl) in enumerate(splitlines) if occursin(r"\S", sl)  &  ! (match(r"\s*(?:#|$)", sl) === nothing)]  ## remove empty lines and comments
+
+    indent = measureIndent(splitlines[start])  # get the current indent level
+    ln = start-1  # because we will increment this in the while true ... 
+
+    while true
+        ln += 1
+        if ln >= length(splitlines)
+            break
+        end
+        thisline = splitlines[ln]
+
+        ## Skip blank lines or lines starting with #
+        if ! occursin(r"\S", thisline)
+            continue
+        end
+
+        ## Measure line indentation, make sure it is correct for this level
+        lineInd = measureIndent(thisline)
 
 
+        if lineInd < indent
+            ln -= 1 # back up one level
+            break  # will cause return
+        elseif lineInd > indent
+            println("    Indentation is incorrect. Expected ", indent, "  got: ", lineInd, "  on line: ", ln)
+            println("        Offending string: ", thisline)
+            error("Bad indent")
+        end
+        if  match(r"[:]+", thisline) === nothing
+            println("Missing colon on line: ", ln)
+            println("    Offending string: ", sl)
+            error("Missing colon")
+            continue
+        end
+        values = split(thisline, ':', limit=2)
+        values = strip.(values)
+        # println("Values: ", values)
+        key = values[1]
+        if length(key) == 0
+            error("Missing name preceding colon")
+        end
+        value  = values[2]
 
-# class ParseError(Exception):
-#     def __init__(self, message, lineNum, line, fileName=None):
-#         self.lineNum = lineNum
-#         self.line = line
-#         #self.message = message
-#         self.fileName = fileName
-#         Exception.__init__(self, message)
-#
-#     def __str__(self):
-#         if self.fileName is None:
-#             msg = "Error parsing string at line %d:\n" % self.lineNum
-#         else:
-#             msg = "Error parsing config file '%s' at line %d:\n" % (self.fileName, self.lineNum)
-#         msg += "%s\n%s" % (self.line, self.message)
-#         return msg
-#         #raise Exception()
-#
+        if (length(value) > 0)  # must have a value
+            if (value[1] in ['[', '('])  & (value[end] in [']', ")"])
+                value = replace(value, "L" => "")
+            end
+            if (value[1] in ['{', '(', '[']) & (value[end] in [']', ')', '}'])
+                # strip out the "array" as pycall doesn't know how to evaluate it
+                value = replace(value, "array([" => "([")
+                val = py"eval_value"(value)
+            elseif startswith(value, "ColorMap")
+                p, value = ColorMap(value)
+                value = join([p, value], ", ")
+                val = py"eval_value"(value)
+            else
+                val = py"eval_value"(value)
+
+            end
+
+        else
+            if (ln+1 >= length(lines)) | (measureIndent(splitlines[ln+1]) <= indent)
+                # println( "    blank dict for key: ", key)
+                val = nothing
+            else
+                # println("************Going deeper..", ln)
+                ln, val = parseConfigString(lines, start=ln+1)
+
+            end
+        end
+        data[key] = val
+    end
+    return ln, data
+end
+
 #
 # def writeConfigFile(data, fname):
 #     s = genString(data)
@@ -106,20 +204,17 @@ def Point(p):
 #     fd.write(s)
 #     fd.close()
 #
-# def readConfigFile(fname):
-#     #cwd = os.getcwd()
-#
-#     if not os.path.exists(fname):
-#         fname = fname2
-#     try:
-#         #os.chdir(newDir)  ## bad.
-#         fd = open(fname)
-#         s = fd.read() # .encode("latin1")
-#         s = str(s)
-#         fd.close()
-#         s = s.replace("\r\n", "\n")
-#         s = s.replace("\r", "\n")
-#         data = parseString(s)[1]
+function readConfigFile(fname)
+
+    open(fname, "r") do fd
+        s = read(fd, String)
+        # println(s)
+
+        s = replace(s, "\r\n" => s"\n")
+        s = replace(s, "\r" => s"\n")
+        println("Calling parseString")
+        data = parseConfigString(s)
+    end
 #     except ParseError:
 #         sys.exc_info()[1].fileName = fname
 #         raise
@@ -129,7 +224,8 @@ def Point(p):
 #     #finally:
 #         #os.chdir(cwd)
 #     return data
-#
+end
+
 # def appendConfigFile(data, fname):
 #     s = genString(data)
 #     fd = open(fname, 'a')
@@ -154,135 +250,49 @@ def Point(p):
 #             s += indent + sk + ': ' + repr(data[k]) + '\n'
 #     return s
 #
-# def parseString(lines, start=0):
-#
-#     data = OrderedDict()
-#     # lines = str(lines)
-#     if isinstance(lines, str):
-#         lines = lines.split('\n')
-#         lines = [l for l in lines if re.search(r'\S', l) and not re.match(r'\s*#', l)]  ## remove empty lines
-#     indent = measureIndent(lines[start])
-#     ln = start - 1
-#
-#     try:
-#         while True:
-#             ln += 1
-#             #print ln
-#             if ln >= len(lines):
-#                 break
-#
-#             l = lines[ln]
-#
-#             ## Skip blank lines or lines starting with #
-#             if re.match(r'\s*#', l) or not re.search(r'\S', l):
-#                 continue
-#
-#             ## Measure line indentation, make sure it is correct for this level
-#             lineInd = measureIndent(l)
-#             if lineInd < indent:
-#                 ln -= 1
-#                 break
-#             if lineInd > indent:
-#                 #print lineInd, indent
-#                 raise ParseError('Indentation is incorrect. Expected %d, got %d' % (indent, lineInd), ln+1, l)
-#
-#             ## set up local variables to use for eval
-#             local =allUnits.copy()
-#             local['OrderedDict'] = OrderedDict
-#             local['readConfigFile'] = readConfigFile
-#             local['Point'] = Point
-#             # local['QtCore'] = QtCore
-#             local['ColorMap'] = ColorMap
-#             local['datetime'] = datetime
-#             # Needed for reconstructing numpy arrays
-#             local['array'] = numpy.array
-#             for dtype in ['int8', 'uint8',
-#                           'int16', 'uint16', 'float16',
-#                           'int32', 'uint32', 'float32',
-#                           'int64', 'uint64', 'float64']:
-#                 local[dtype] = getattr(numpy, dtype)
-#
-#             if ':' not in l:
-#                 raise ParseError('Missing colon', ln+1, l)
-#
-#             (k, p, v) = l.partition(':')
-#             k = k.strip()
-#             v = v.strip()
-#
-#             if len(k) < 1:
-#                 raise ParseError('Missing name preceding colon', ln+1, l)
-#             if k[0] == '(' and k[-1] == ')':  ## If the key looks like a tuple, try evaluating it.
-#                 try:
-#                     k1 = eval(k, local)
-#                     if type(k1) is tuple:
-#                         k = k1
-#                 except:
-#                     pass
-#             if re.search(r'\S', v) and v[0] != '#':  ## eval the value
-#                 if (v[0] == '[' or v[0] == '(') and (v[-1] == ']' or v[-1] == ')'):
-#                      v = v.replace('L', '')
-#                 try:
-#                     val = eval(v, local)
-#                 except:
-#                     ex = sys.exc_info()[1]
-#                     raise ParseError("Error evaluating expression '%s': [%s: %s]" % (v, ex.__class__.__name__, str(ex)), (ln+1), l)
-#             else:
-#                 if ln+1 >= len(lines) or measureIndent(lines[ln+1]) <= indent:
-#                     #print "blank dict"
-#                     val = {}
-#                 else:
-#                     #print "Going deeper..", ln+1
-#                     (ln, val) = parseString(lines, start=ln+1)
-#             data[k] = val
-#         #print k, repr(val)
-#     except ParseError:
-#         raise
-#     except:
-#         ex = sys.exc_info()[1]
-#         raise ParseError("%s: %s" % (ex.__class__.__name__, str(ex)), ln+1, l)
-#     #print "Returning shallower..", ln+1
-#     return (ln, data)
-#
-# def measureIndent(s:str):
-#     n = 0
-#     while n < len(s) and s[n] == ' ':
-#         n += 1
-#     return n
-#
-# def test():
-#
-#     fn = "/Users/pbmanis/Desktop/2018.09.27_000/ImageSequence_000/.index"
-#     data = readConfigFile(fn)
-#     print(data)
-#     fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
-#     data = readConfigFile(fn)
-#     print(data)
-#
-# if __name__ == '__main__':
-#     import tempfile
-#     fn = tempfile.mktemp()
-#     tf = open(fn, 'w')
-#     cf = """
-# key: 'value'
-# key2:              ##comment
-#                    ##comment
-#     key21: 'value' ## comment
-#                    ##comment
-#     key22: [1,2,3]
-#     key23: 234  #comment
-#     """
-#     tf.write(cf)
-#     tf.close()
-#     print("=== Test:===")
-#     num = 1
-#     for line in cf.split('\n'):
-#         print("%02d   %s" % (num, line))
-#         num += 1
-#     print(cf)
-#     print("============")
-#     data = readConfigFile(fn)
-#     # print(data)
-#     os.remove(fn)
+
+
+function test()
+
+    fn = "/Users/pbmanis/Desktop/2018.02.12_000/slice_001/cell_000/CCIV_4nA_max_002/.index"
+    data = readConfigFile(fn)
+    print(json(data, 4))
+    # fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
+    # data = readConfigFile(fn)
+    # Println(data)
+end
+
+function filetest()
+    fn, fnio = mktemp()
+
+    cf = """
+    key: 'value'
+    key2:              ##comment
+                    ##comment
+    key21: 'value' ## comment
+                    ##comment
+    key22: [1,2,3]
+    key23: 234  #comment
+    """
+    write(fnio, cf)
+    close(fnio)
+    println("=== Test:===")
+    num = 0
+    for line in eachsplit(cf,"\n")
+        num += 1
+        println(num, ": ", line)
+    end
+    println(cf)
+    println("============")
+
+    data = readConfigFile(fn)
+
+end
+
+test()
+
+
 
 # now test some real files
 
+end
