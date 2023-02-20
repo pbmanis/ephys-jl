@@ -330,10 +330,10 @@ function label_events(
     pks,
     ev_end,
     template,
-    thr::Float64,
+    thr,
     sign::Int64,
     classifier;
-    data_info = nothing,
+    data_info,
 )
     if data_info === nothing
         return nothing

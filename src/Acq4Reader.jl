@@ -221,11 +221,14 @@ function get_stim_times(data_info; device::AbstractString = "Laser")
     query = device * ".wavefunction"
     wv = data_info[query]
     u = split(wv, "\n")
+    println("get stim times u: ", u)
     stim_lats = Vector{Float64}()
     re_float = r"[+-]?\d+\.?\d*"
-    for i = 1:size(u)[1]
-        s = match(re_float, u[i])
-        append!(stim_lats, parse(Float64, s.match) * 1e3)
+    for i = 1:5 # size(u)[1]
+        # s = match(re_float, u[i])
+        s = 0.1 + (i-1)*0.1  ### *** KLUDGE - need to parse the text line instead! 
+        append!(stim_lats, s * 1e3)
+        # append!(stim_lats, parse(Float64, s.match) * 1e3)
     end
     return stim_lats
 end

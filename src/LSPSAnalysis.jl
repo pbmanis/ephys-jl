@@ -213,7 +213,11 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         ntr = maxtr
     end
     imax = Int64(maxt / dt_seconds)
-
+    if imax > size(tdat)[1]
+        imax = size(tdat)[1]
+        maxt = imax * dt_seconds 
+    end
+    println("ntr: ", ntr, " maxtr: ", maxtr, " dt_sec: ", dt_seconds, " imax: ", imax, " maxt: ", maxt)
     idat = idat[1:imax, 1:ntr]
     tdat = tdat[1:imax, 1:ntr]
 
