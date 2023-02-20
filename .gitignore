@@ -5,3 +5,4 @@ python/__pycache__/configfile.cpython-38.pyc
 python/__pycache__/configfile.cpython-310.pyc
 .vscode/settings.json
 .DS_Store
+.CondaPkg/
