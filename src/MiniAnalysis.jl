@@ -247,7 +247,7 @@ function plot_measures(x, data, crosses, events; labx = "", laby = "")
     hp = compare_plots(events.durs, events.amps, labx = "Dur (ms)", laby = "Amp (pA)")
     plot(title, p1, hp.mx, hp.hist, hp.my, layout = l) # , layout=grid(3, 1, heights = [0.1, 0.45, 0.35]))  # note use of show=true here - critical!
     plot!(size = (600, 600), show = true)
-    show()
+    display(plot)
 end
 
 struct Event
@@ -335,7 +335,7 @@ function label_events(
     classifier;
     data_info = nothing,
 )
-    if data_info == nothing
+    if data_info === nothing
         return nothing
     end
     evts = Events("All the Events", Vector{Event}())
@@ -372,7 +372,7 @@ function label_events(
                             # println("Set direct: ", lat, " ", dur)
                             class = "direct"  # relabel
                         elseif (lat >= classifier.minEvokedLatency) & # latency and short duration mark putative evoked
-                            (lat < classifier.maxEvokedLatency) &  # logically redundantwith first if statement 
+                            (lat < classifier.maxEvokedLatency) &  # logically redundant with first if statement 
                             (dur < classifier.minDirectDuration) & # not as long as a direct event
                             (dur >= classifier.minEvokedDuration) & # but longer than noise event
                             (amp >= classifier.minEvokedAmplitude)
@@ -418,7 +418,9 @@ struct EventTrace
 end
 
 """
-    extract_events)     tdat,
+    extract_events(
+
+    tdat,
     idat,
     s,
     c,
@@ -798,7 +800,7 @@ function identify_events(wave, crit, thr, dt, sign; min_dur=2.5e-4, thresh = 3.0
 		end
 			# only look until the start of the next event.
         iend = findfirst((sign.*wave[iev:next_ev] .> 0) .& (sign.*wave[iev+1:(next_ev+1)] .<= 0)) # define end as first zero crossing after the peak
-        if iend == nothing # it is possible to go off end of waveform 
+        if iend ===nothing # it is possible to go off end of waveform 
 			# println("iend not found: ", iev, " next_ev: ", next_ev, " len wave: ", length(wave)-1)
 			if next_ev >= length(wave)
 				# println(" off end of trace ")
@@ -1125,7 +1127,7 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, ev_allev, templat
         end
 
 		if i == 1
-            if template != nothing
+            if template !== nothing
                 p4 = plot(
                     t_psc[1:size(template)[1]],
                     template,
@@ -1137,7 +1139,7 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, ev_allev, templat
                 )
             end
         else
-            if template != nothing
+            if template === nothing
                 p4 = plot!(
                     p4,
                     t_psc[1:size(template)[1]],
@@ -1185,7 +1187,7 @@ function plot_events(t_psc, idat, s, c, npks, ev, pks, ev_end, ev_allev, templat
         xticks = false,
         bottom_margin = -50Plots.px,
     )
-    if template != nothing
+    if template === nothing
         l = @layout(
             [
                 a{0.1h}

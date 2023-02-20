@@ -1,9 +1,10 @@
-__precompile__()
+# __precompile__()
 module Acq4Reader
 using Statistics
 using HDF5
 using Plots
-using Printf
+using PyPlot
+# using Printf
 using Base.Threads
 using ArraysOfArrays
 using ElasticArrays
@@ -12,10 +13,11 @@ using Distributed
 using SharedArrays  # important for parallel/looping
 # using ProgressMeter
 using InteractiveUtils
+# include("configfile.jl")
 
 using PyCall
 
-# pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader...
+#pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader...
 
 # Theoretically, the following should work, but we encounter an error:
 # "[NameError: name 'array' is not defined]")
@@ -26,7 +28,7 @@ pgc = pyimport("python.configfile")  # use a local python routine to read the co
 
 export read_hdf5, get_lims, get_stim_times
 
-pyplot()
+#pyplot()
 
 
 
@@ -84,12 +86,12 @@ function read_hdf5(filename)
             if mode != sweep_mode
                 throw(
                     ErrorException(
-                        "Mode changed from ",
+                        string("Mode changed from ",
                         _mode,
                         " to ",
                         sweep_mode,
-                        "inside protocol",
-                    ),
+                        "inside protocol",)
+                    )
                 )
             end
         end
@@ -123,6 +125,7 @@ function read_hdf5(filename)
     tdat = deepcopy(s_tdat)
     vdat = deepcopy(s_vdat)
     indexfile = joinpath(filename, ".index")
+    println("Reading index file: ", indexfile)
     cf = pgc.readConfigFile(indexfile)
     if haskey(cf["."]["devices"], "Laser-Blue-raw")
         wavefunction =
@@ -275,12 +278,16 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
 end
 
 function test_configread()
-    filename = "/Users/pbmanis/Desktop/2018.09.27_000/ImageSequence_000/.index"
+    filename = "/Users/pbmanis/Desktop/2018.02.12_000/slice_001/cell_000/.index"
+    if !isfile(filename) 
+        println("File not found: ", filename)
+        exit()
+    end
     data = pgc.readConfigFile(filename)
     println(data)
-    fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
-    data = pgc.readConfigFile(fn)
-    println(data)
+    # fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
+    # data = pgc.readConfigFile(fn)
+    # println(data)
 end
 
 function test_reader()

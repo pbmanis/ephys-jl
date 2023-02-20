@@ -18,7 +18,7 @@ export plot_event_distribution
 function plot_event_distributions(
     df;
     response_window = 25.0,
-    figurename = Union{str,nothing} = nothing,
+    figurename = "",
 )
     # d is the dataframe (from miniAnalysis events_to_dataframe)
     binsx = 50
@@ -64,7 +64,7 @@ function plot_event_distributions(
     )
     l = @layout [a b; c d] # ; e f]
     u = plot(p_amp, p_dur, p_rt, p_lat, layout = l, show = true)
-    if figurename != nothing
+    if figurename != ""
         savefig(u, figurename)
     end
     return u
@@ -315,7 +315,7 @@ end
 
 
 function finalize_fitted_plot(p1, p2)
-    if (p1 == nothing) | (p2 == nothing)
+    if (p1 === nothing) | (p2 === nothing)
         return nothing
     end
     l = @layout [a; b] # ; e f]
@@ -338,7 +338,7 @@ function stack_plot(
     above_zthr;
     mode = "Undef",
     figtitle = "",
-    figurename = Union{str,nothing} = nothing,
+    figurename ="",
     maxtraces = 0,
     makie = "", # ignored - just for compatability with LSPSStackPlot.stack_plot2
 )
@@ -443,7 +443,7 @@ function stack_plot(
     ) #, 0.30, 0.30]))
 
     PX = plot!(p_I, size = (600, 800), show = true)
-    if figurename != nothing
+    if figurename != ""
         savefig(PX, figurename)
     end
     return PX

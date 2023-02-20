@@ -117,7 +117,7 @@ function HightKalluri(tdat, vdat, idat, pars)
     npts = size(vdat)
     spikes = zero(vdat)
     dt = tdat[2] - tdat[1]. # sample rate
-    iwid = round(Int64, dt2 / dt). # width of region to look for slope values
+    iwid = round(Int64, dt2 / dt) # width of region to look for slope values
     for i = iwid:(length(vdat)-iwid)
         if vdat[i] > threshold # when voltage exceeds threshold, check shape
             if (vdat[i] > vdat[i-1]) & (vdat[i] > vdat[i+1])  # local peak
