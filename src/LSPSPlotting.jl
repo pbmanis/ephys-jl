@@ -7,6 +7,7 @@ using Statistics
 using Printf
 # ENV["MPLBACKEND"] = "MacOSX"
 using Plots
+
 # pyplot()
 
 include("LSPSFitting.jl")
@@ -255,18 +256,18 @@ function plot_one_trace(
         class = "spontaneous",
         markercolor = :cyan,
     )
-    # p_I = decorate_and_paint!(
-    #     p_I,
-    #     tdat,
-    #     idat,
-    #     vertical_offset,
-    #     eventdf,
-    #     sign,
-    #     linecolor = :magenta,
-    #     linewidth = linewidth,
-    #     class = "noise",
-    #     markercolor = :magenta,
-    # )
+    p_I = decorate_and_paint!(
+        p_I,
+        tdat,
+        idat,
+        vertical_offset,
+        eventdf,
+        sign,
+        linecolor = :magenta,
+        linewidth = linewidth,
+        class = "noise",
+        markercolor = :magenta,
+    )
 
     return p_I
 end
@@ -435,14 +436,14 @@ function stack_plot(
         bottom_margin = -50Plots.px,
     )
     l = @layout([a{0.1h}; b])
-    p_I = plot(
+    p_I = plot!(
         title,
         p_I,
         # layout = l,
         layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
     ) #, 0.30, 0.30]))
 
-    PX = plot!(p_I, size = (600, 800), show = true)
+    PX = plot!(p_I, size = [600, 800], show = true)
     if figurename != ""
         savefig(PX, figurename)
     end

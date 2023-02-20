@@ -53,8 +53,11 @@ mutable struct SpikeDetectParameters
     HK_C2::Float64 # V
     mode::String  # detection mode (schmitt, threshold or peak)
     detector::String  # detector method to use (threshold, argrelmax, Kalluri)
-
 end
+
+#=
+aliased function to copy data into the parameters
+=#
 function SpikeDetectParameters(;
     threshold = 0.0,
     refractory = 0.0007,

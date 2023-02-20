@@ -4,15 +4,16 @@ import DataFrames: DataFrame, describe, select, Not
 using Statistics
 using Printf
 # ENV["MPLBACKEND"] = "MacOSX"
-#using GLMakie
-using GLMakie
-using CairoMakie
-using WGLMakie
-
+# using Makie
+# using GLMakie
+# using CairoMakie
+# using WGLMakie
+using Plots
+gr()
 # whichMakie.activate!()  # interactive first
-using AbstractPlotting
-AbstractPlotting.__init__()
-AbstractPlotting.inline!(false)
+# using AbstractPlotting
+# AbstractPlotting.__init__()
+# AbstractPlotting.inline!(false)
 include("MiniAnalysis.jl")
 include("Acq4Reader.jl")
 

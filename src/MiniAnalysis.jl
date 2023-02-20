@@ -22,7 +22,7 @@ using DataFrames
 
 #ENV["MPLBACKEND"] = "MacOSX"
 using Plots
-# pyplot()
+
 
 include("LSPSPlotting.jl")
 include("Acq4Reader.jl")
@@ -676,7 +676,7 @@ end
 
 function test_template()
     t_template, template = make_template()
-    println(size(t_template), size(template))
+    println("test_template: ", size(t_template), size(template))
     plot(t_template, template)
     plot!(size = (500, 500))
 end
@@ -817,9 +817,9 @@ function identify_events(wave, crit, thr, dt, sign; min_dur=2.5e-4, thresh = 3.0
 			continue
 		else
 			# println("iend: ", iend, " for iev=", iev)
-			if iend < 20
-				println(sign.*wave[iev:(iev+iend)])
-			end
+			# if iend < 20
+			# 	println("events: ", sign.*wave[iev:(iev+iend)])
+			# end
 			ipk = argmax(sign.*wave[iev:(iev+iend)])
 	        ev_end[k] = iev + iend - 1 # minimum((size(wave)[1], ))
 	        pks[k] = ipk + iev - 1
@@ -943,7 +943,7 @@ function detect_events(
                 pksx[1:nppks[i], i] = pksa
                 ev_endx[1:nppks[i], i] = evenda
 				ev_all[1:size(ev)[1], i] = ev
-				println("length of main event list ev: ", size(ev))
+				# println("length of main event list ev: ", size(ev))
             end
         end
         ev = Array{Array{Int64}}(undef, (n_traces))  # event onsets

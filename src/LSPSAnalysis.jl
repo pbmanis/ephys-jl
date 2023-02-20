@@ -170,7 +170,7 @@ function LSPS_analyze(;fits = true,
     filename = ""
     while filename == ""
         filename = open_dialog("Select Dataset Folder", action=GtkFileChooserAction.SELECT_FOLDER)
-        println(filename)
+        println("File: ", filename)
         if (filename != "") & isdir(filename)
             LSPS_read_and_plot(filename=filename, fits=fits, saveflag=saveflag, mode=mode,
             maxtr = maxtr, makie=makie, mindy=mindy,
@@ -271,9 +271,9 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         idat,
         dt_seconds,
         parallel = true,
-        thresh = 3,
-        tau1 = 1e-3,
-        tau2 = 3e-3,
+        thresh = 2,
+        tau1 = 3e-3,
+        tau2 = 10e-3,
         sign = sign,
         zcpars = zcpars,
     )
@@ -306,7 +306,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
     nextracted = size(extracted)[1]
     p_ex = nothing
     p_diff = nothing
-    println(nextracted)
+    println("N extracted: ", nextracted)
     if nextracted > 0
         CList = cgrad(:Paired_10, nextracted, categorical=true)
     else
@@ -349,8 +349,8 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         dt_seconds,
         parallel = true,
         thresh = 2.5,
-        tau1 = 0.5e-3,
-        tau2 = 3e-3,
+        tau1 = 3e-3,
+        tau2 = 10e-3,
         sign = sign,
         zcpars = zcpars,
     )

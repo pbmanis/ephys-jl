@@ -7,12 +7,15 @@ using ArraysOfArrays
 using ForwardDiff
 using ArgParse
 
+
 ENV["MPLBACKEND"] = "MacOSX"
 using Plots
-using Plots.Measures
-using PlotlyBase
-Plots.plotly()
 
+using Plots.Measures
+# inspectdr()
+# using PlotlyBase
+# Plots.plotly()
+gr()
 using FilePathsBase
 
 include("Acq4Reader.jl")
@@ -52,8 +55,8 @@ function compute_iv(tdat, vdat, idat; ss_win=[0.5, 0.6], pk_win=[0.1, 0.2])
 
     tdat, vdat and idate are the time, voltage and current traces 
         (dimensions are npoints, ntraces)
-    ss_win is the steady-state window
-    pk_win is the window for measuring the peak voltage deflection
+    ss_win is the steady-state window (times in seconds)
+    pk_win is the window for measuring the peak voltage deflection (times in seconds)
     Returns V, I and a minimum value
     =#
     pts = findall((tdat[:, 1] .>= ss_win[1]) .& (tdat[:, 1] .< ss_win[2]))
@@ -71,18 +74,21 @@ function fit_iv(
     idat;
     ilim=[-10e-9, -0.05e-9],
     iwin=[0.1, 0.2],
-    p00=[-0.06, -0.01, 200.0]
+    p00=[-0.06, -0.01, 0.005],
+    lb=[-0.200, -0.05, 0.0005],
+    ub=[0.01, 0.100, 0.5],
 )
     #=
     Fit multiple traces in a current-voltage data set to measure time constants
 
     tdat, vdat and idate are the time, voltage and current traces 
-        (dimensions are npoints, ntraces)
-    ilim : the min and max currents for fitting
+        (dimensions are npoints, ntraces, times are in seconds)
+    ilim : the min and max currents for fitting (in Amperes)
+    iwin : the window over which the data will be fit (times in seconds)
     p00 : Initial values for the curve fit (DC, amplitude, 1/tau)
-    iwin : the window over which the data will be fit
 
     =#
+
     # pts =  findall((tdat[:,1] .>= window[1]) .& (tdat[:,1] .< window[2]))
     ipts = findall((tdat[:, 1] .>= iwin[1]) .& (tdat[:, 1] .< iwin[2]))
     imn = mean(idat[ipts, :], dims=1)
@@ -98,7 +104,7 @@ function fit_iv(
         td = tdat[ipts, i]
         p0 = p00
         vd = vdat[ipts, i]
-        fit = curve_fit(expmodel, td .- iwin[1], vd, p0)
+        fit = curve_fit(expmodel, td .- iwin[1], vd, p0, lower=lb, upper=ub)
         params[i] = fit.param
         @printf(
             "Params: DC= %8.2f mV A = %8.2f mV  Tau = %8.3f ms\n",
@@ -117,11 +123,14 @@ function get_spikes(tdat, vdat, idat, sppars; iwin=[0.1, 1.0], ilim=[0.0, 10e-9]
     get times and counts
 
     tdat, vdat and idate are the time, voltage and current traces 
-        (dimensions are npoints, ntraces)
-    ilim : the min and max currents for counting spikes
-    iwin : the window over which spikes will be accepted
-
+        (dimensions are npoints, ntraces, times in seconds, currents in Amperes,
+        voltages in Volts)
+    sppars :  spike parameters, passed to SpikeAnalysis.AnalyzeSpikes:
+        Use SpikeDetectParameters function to fill this structure.
+    iwin : the window over which spikes will be accepted (times in seconds)
+    ilim : the min and max currents for counting spikes (current in Amperes)
     =#
+
     # pts =  findall((tdat[:,1] .>= window[1]) .& (tdat[:,1] .< window[2]))
     ntraces = size(tdat)[2]
     ipts = findall((tdat[:, 1] .>= iwin[1]) .& (tdat[:, 1] .< iwin[2]))
@@ -150,6 +159,7 @@ function get_spikes(tdat, vdat, idat, sppars; iwin=[0.1, 1.0], ilim=[0.0, 10e-9]
             )
             spk_inj[i] = imn[i]
         end
+
     end
     # for i = 1:ntraces
     # 	if isassigned(spk_times, i)
@@ -161,7 +171,7 @@ end
 
 function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
     #=
-    Read an HDF5 file, do a little analysis on the data
+    Read an HDF5 file (acq4 file), do a little analysis on the data
         -- ivs and fitting
     and plot the result
     =#
@@ -220,13 +230,17 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
     lasti = 1
     tspikes = Vector{Float64}()
     vspikes = Vector{Float64}()
+
+    first_spiketrace = false
     for i = 1:size(vdat)[2]
-        if imean[i] <= 0.0
+        idat0 = mean(idat[1:10, i])
+        if (imean[i] <= idat0) | (spk_count[i] == 0)
             voffset[i] = 0.0
-            lasti = i
+            lasti = i+1
         else
             voffset[i] = (i - lasti) * spike_vstep
             vdat[:, i] = vdat[:, i] .+ voffset[i]
+
             if isassigned(spk_vpeak, i) # add markers for spikes
                 append!(vspikes, spk_vpeak[i] .+ voffset[i])
                 append!(tspikes, spk_times[i])
@@ -234,6 +248,8 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
         end
     end
 
+
+    #
     # Data is ready to plot... 
 
     tmax = maximum(tdat[:, 1])
@@ -284,8 +300,8 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
         xlims=(0, tmax * 1e3),
         # ylims = (ylim_min, ylim_max),
         legend=nothing,
-        w=0.3,
-        linecolor="black",
+        w=0.2,
+        linecolor="darkgrey",
         title=fn,
         titlefontsize=9,
     )
@@ -351,8 +367,8 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
     plot!(xlabel="I (nA)", ylabel="V (mV)", p_ssIV)
     plot!(xlabel="I (nA)", ylabel="Spikes", p_FI)
     if fits
-        plot!(p_Vtraces, tfit.*1e3, vfit.*1e3, w=0.25, linecolor="red")
-        plot!(p_Vtraces, tfit2.*1e3, vfit2.*1e3, w=0.3, linecolor="blue")
+        plot!(p_Vtraces, tfit.*1e3, vfit.*1e3, w=0.35, color="red", line=:solid)
+        plot!(p_Vtraces, tfit2.*1e3, vfit2.*1e3, w=0.05, color="darkred")
     end# p1d = plot(td, vd, xlims=(0, tmax), ylims=top_lims, legend=false)
     # p1f = plot(tfit, vfit, )
     l = @layout [a{0.6w} b]

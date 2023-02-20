@@ -2,8 +2,8 @@
 module Acq4Reader
 using Statistics
 using HDF5
-using Plots
-using PyPlot
+# using Plots
+# using PyPlot
 # using Printf
 using Base.Threads
 using ArraysOfArrays
@@ -15,22 +15,7 @@ using SharedArrays  # important for parallel/looping
 using InteractiveUtils
 include("configfile.jl")
 
-using PyCall
-
-#pgc = pyimport("pyqtgraph.configfile")  # use python configuration reader...
-
-# Theoretically, the following should work, but we encounter an error:
-# "[NameError: name 'array' is not defined]")
-# on the scanner target array structure with lots of "array([ 0.00157848,  0.003536  ])"
-# scriptdir = @__DIR__
-# pushfirst!(PyVector(pyimport("sys")."path"), scriptdir)
-# pgc = pyimport("python.configfile")  # use a local python routine to read the config files
-
 export read_hdf5, get_lims, get_stim_times
-
-#pyplot()
-
-
 
 function get_subdirs(base_dir)
     # read the subdirectories of the current base_dir
