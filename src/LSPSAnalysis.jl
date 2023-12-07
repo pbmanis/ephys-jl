@@ -2,6 +2,7 @@ module LSPSAnalysis
 using LsqFit
 using Statistics
 using Printf
+using Crayons
 using Crayons.Box
 using DSP
 using Base.Threads
@@ -77,6 +78,7 @@ function detrend!(X::AbstractArray{<:AbstractFloat})
     X .-= A * (factor * X)
     return nothing
 end
+
 detrend(A::AbstractArray{<:AbstractFloat}) = (U = deepcopy(A);
     detrend!(U);
     return U)
@@ -185,8 +187,8 @@ end
 function LSPS_read_and_plot(;filename::String="", fits = true, 
     saveflag = false, mode = "AJ", maxtr=0, makie="i", 
     mindy=10.0, adjust=false)
-    println(GREEN_FG, "Reading Data File, V0.5")
-    println(GREEN_FG, "Filename: ", filename)
+    println("Reading Data File, V0.5")
+    println("Filename: ", filename)
     
     #=
     Read an HDF5 file, do a little analysis on the data
@@ -221,7 +223,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
     idat = idat[1:imax, 1:ntr]
     tdat = tdat[1:imax, 1:ntr]
 
-    println(GREEN_FG, "Preparing data (detrending, artifact suppression, filtering)")
+    println("Preparing data (detrending, artifact suppression, filtering)")
     demean!(idat)
     detrend!(idat)
     notchfreqs = [
@@ -234,12 +236,12 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
     idat = filter_data_bandpass(tdat, idat, lpf = 2500.0)
     # calculate zscores
     sign = -1
-    println(GREEN_FG, "Computing ZScores")
+    println("Computing ZScores")
     @time zs = ZScore(tdat, idat .* sign, baseline = [0, 0.1], score_win = [0.9, 0.93])
-    println(WHITE_FG, "    Max Z Score: ", maximum(zs), " of ", size(zs))
+    println("    Max Z Score: ", maximum(zs), " of ", size(zs))
     zthr = 1.96
     above_zthr = findall(zs[1, :] .> zthr)
-    println(WHITE_FG, "    # traces above z threshod: ", size(above_zthr), " ", above_zthr)
+    println("    # traces above ZScore threshold of ", zthr, " : ", size(above_zthr))
 
     zcpars = (
         minDuration = 1e-3,
@@ -265,7 +267,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
     # s, c, ev, pks, thr = MiniAnalysis.detect_events(mode, idat[:,1:ntr], dt_seconds,
     #         parallel=false, thresh=3.0, tau1=1*1e-3, tau2=3*1e-3, sign=-1,
     #         zcpars = zcpars)
-    println(GREEN_FG, "Detecting events")
+    println("Detecting events")
     @time s, c, npks, ev, pks, ev_end, thr = MiniAnalysis.detect_events(
         mode,
         idat,
@@ -278,7 +280,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         zcpars = zcpars,
     )
     template = nothing
-    println(GREEN_FG, "Labeling events (classifcation)")
+    println("Labeling events (classifcation)")
     @time events = MiniAnalysis.label_events(
         tdat,
         idat,
@@ -292,15 +294,15 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         classifier,
         data_info = data_info,
     )
-    println(WHITE_FG, "    Number of events: ", size(events.events)[1])
+    println("    Number of events: ", size(events.events)[1])
 
     n, df = MiniAnalysis.events_to_dataframe(events)  # we lose trace info here, but file for LDA etc.
     # newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation
 
-    # println(GREEN_FG, "Plotting distributions")
+    # println("Plotting distributions")
     # @time u = LSPSPlotting.plot_event_distributions(df, figurename="mini_event_distributions.pdf")  #distributionsdon't care about trace
 
-    println(GREEN_FG, "Extracting direct events", WHITE_FG)
+    println("Extracting direct events", )
     extracted = MiniAnalysis.extract_events(tdat, idat, npks, df, sign, "direct")
     println("Number of extracted events of class direct: ", size(extracted))
     nextracted = size(extracted)[1]
@@ -326,7 +328,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         return
     end
     #
-    # println(GREEN_FG, "Plotting traces and annotations", WHITE_FG)
+    # println("Plotting traces and annotations", )
     # @time PX = LSPSPlotting.stack_plot(
     #     df,
     #     tdat,
@@ -341,7 +343,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
     # return PX, u
 
     # repeat analysis, this time with AJ method now that directs are removed
-    println(GREEN_FG, "Detecting events, with AJ")
+    println("Detecting events, with AJ")
     mode = "AJ"
     @time s, c, npks2, ev2, pks2, ev_end2, thr2 = MiniAnalysis.detect_events(
         mode,
@@ -355,7 +357,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         zcpars = zcpars,
     )
     template = nothing
-    println(GREEN_FG, "Labeling events (classifcation)")
+    println("Labeling events (classifcation)")
     @time events2 = MiniAnalysis.label_events(
         tdat,
         idat,
@@ -369,7 +371,7 @@ function LSPS_read_and_plot(;filename::String="", fits = true,
         classifier,
         data_info = data_info,
     )
-    println(WHITE_FG, "    Number of events: ", size(events2.events)[1])
+    println("    Number of events: ", size(events2.events)[1])
 
     n, df = MiniAnalysis.events_to_dataframe(events2)  # we lose trace info here, but file for LDA etc.
     # newdf = EPSC_LDA.epsc_lda(df)  # do classification and re-estimation

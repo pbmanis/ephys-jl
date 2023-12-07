@@ -908,7 +908,7 @@ function detect_events(
         println("Method not recognized: ", mode)
     end
     if parallel
-        println(WHITE_FG, "    Event detection, parallel")
+        println("    Event detection, parallel")
         s = SharedArray{Float64,2}((nwave, n_traces))
         c = SharedArray{Float64,2}((nwave, n_traces))
         @time @threads for i = 1:n_traces
@@ -916,19 +916,19 @@ function detect_events(
         end
 
     else
-        println(WHITE_FG, "    Event detection, serial")
+        println("    Event detection, serial")
         s = Array{Float64,2}(undef, (nwave, n_traces))
         c = Array{Float64,2}(undef, (nwave, n_traces))
         @time for i = 1:n_traces
             s[:, i], c[:, i] = method(idat[:, i], pars)
         end
     end
-    println(WHITE_FG, "    Detection complete") # draw the threshold line
+    println("    Detection complete") # draw the threshold line
     thr = std(c) * thresh  # all traces go into the threshold
     # println("thr: ", thr, " ", thresh)
 
     if parallel
-        println(WHITE_FG, "    Event identification, parallel")
+        println("    Event identification, parallel")
         evx = SharedArray{Int64,2}((nwave, n_traces))  # event onsets
         pksx = SharedArray{Int64,2}((nwave, n_traces))  # event peaks
         ev_endx = SharedArray{Int64,2}((nwave, n_traces))  # event peaks
@@ -962,7 +962,7 @@ function detect_events(
         end
 
     else
-        println(WHITE_FG, "    Event identification, serial")
+        println("    Event identification, serial")
         ev = Array{Array{Int64}}(undef, (n_traces))  # event onsets
         pks = Array{Array{Int64}}(undef, (n_traces))  # event peaks
         ev_end = Array{Array{Int64}}(undef, (n_traces))  # event peaks
@@ -974,7 +974,7 @@ function detect_events(
             npks[i] - size(ev[i])[1]
         end
     end
-    println(WHITE_FG, "    Identification Complete")
+    println("    Identification Complete")
     return s, c, npks, ev, pks, ev_end, ev_allev, thr
 
 end

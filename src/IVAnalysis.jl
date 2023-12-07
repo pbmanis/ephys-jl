@@ -81,18 +81,21 @@ function fit_iv(
     #=
     Fit multiple traces in a current-voltage data set to measure time constants
 
-    tdat, vdat and idate are the time, voltage and current traces 
+    tdat, vdat and idat are the time, voltage and current traces 
         (dimensions are npoints, ntraces, times are in seconds)
     ilim : the min and max currents for fitting (in Amperes)
     iwin : the window over which the data will be fit (times in seconds)
     p00 : Initial values for the curve fit (DC, amplitude, 1/tau)
-
+    lb : lower bounds for each parameter (DC, amplitude, 1/tau)
+    ub : upper bounds for each parameter (DC, amplitude, 1/tau)
     =#
 
     # pts =  findall((tdat[:,1] .>= window[1]) .& (tdat[:,1] .< window[2]))
     ipts = findall((tdat[:, 1] .>= iwin[1]) .& (tdat[:, 1] .< iwin[2]))
     imn = mean(idat[ipts, :], dims=1)
-    imnp = findall((imn .>= ilim[1]) .& (imn .<= ilim[2]))
+    imnpa = findall((imn .>= ilim[1]) .& (imn .<= ilim[2])) # returns Cartesian index (i,j)
+    imnp = [a[2] for a in imnpa] # we need the second index only
+    println("imnp: ", imnp)
     nfits = size(imnp)[1]
     npts = size(ipts)[1]
     @printf("# of fits: %d\n", nfits)
@@ -100,21 +103,25 @@ function fit_iv(
     vfit = Array{Float64,2}(undef, npts, nfits)
     params = Array{Any,1}(undef, nfits)
     expmodel(t, p) = p[1] .+ p[2] * exp.(-t ./ p[3])
-    for i = 1:nfits
+    for j =  1:nfits
+        i = j + imnp[1] - 1
         td = tdat[ipts, i]
         p0 = p00
         vd = vdat[ipts, i]
+        istep = mean(idat[ipts, i]) - mean(idat[1:10, i])
         fit = curve_fit(expmodel, td .- iwin[1], vd, p0, lower=lb, upper=ub)
-        params[i] = fit.param
+        params[j] = fit.param
         @printf(
-            "Params: DC= %8.2f mV A = %8.2f mV  Tau = %8.3f ms\n",
-            params[i][1] * 1e3,
-            params[i][2] * 1e3,
-            params[i][3] * 1e3
+            "Params: DC= %8.2f mV A = %8.2f mV  Tau = %8.3f ms Istep= %8.3f nA\n",
+            params[j][1] * 1e3,
+            params[j][2] * 1e3,
+            params[j][3] * 1e3,
+            istep * 1e9
         )
-        tfit[:, i] = td
-        vfit[:, i] = expmodel(td .- iwin[1], params[i])
+        tfit[:, j] = td
+        vfit[:, j] = expmodel(td .- iwin[1], params[j])
     end
+    println("returning fit and params")
     return tfit, vfit, imn, params
 end
 
@@ -179,6 +186,7 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
     spike_vstep = 0.085 # V steps between traces for I > 0
 
     tdat, idat, vdat, data_info = Acq4Reader.read_hdf5(filename)
+    println("Mode: ", data_info["clampstate"]["mode"])
     top_lims, bot_lims = Acq4Reader.get_lims(data_info["clampstate"]["mode"])
     @printf(
         "Data lengths: Time=%d  I=%d  V=%d  [# traces = %d]  Duration: %8.3f sec\n",
@@ -191,33 +199,41 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
     # println(data_info["DAQ.Command"])
     # println(data_info)
     pulse_times = data_info["MultiClamp1.pulse_pars"]
-    pstart = pulse_times[1]
-    pdur = pulse_times[1] + pulse_times[2]
-    ss_win = [(pulse_times[2] - 0.1 * pulse_times[2]) + pstart, pdur]
-    pk_win = [pstart, pstart + 0.1 * pulse_times[2]]
+    pstart = parse(Float64, pulse_times[1])
+    pdur = parse(Float64, pulse_times[2])
+    ss_win = [(pdur - 0.1 * pdur) + pstart, pdur]
+    pk_win = [pstart, pstart + 0.1 * pdur]
     println("ss_win: ", ss_win, " ", "pkwin: ", pk_win)
     #println(pulse_times)
     if ivs
         vm, im, imp = IVAnalysis.compute_iv(tdat, vdat, idat, ss_win=ss_win, pk_win=pk_win)
     end
     if fits
+      #  i_baseline = mean(mean(idat[1:10, :], dims=1))*1e9
+      #  println("ibaseline: ", mean(i_baseline) )
+        ilim_taum = [-0.25e-9, -0.0e-9] #  - i_baseline
+        ilim_tauh = [-1.00e-9, -0.40e-9] #  - i_baseline
+        println(ilim_taum, ilim_tauh)
         tfit, vfit, imean, params =
-            IVAnalysis.fit_iv(tdat, vdat, idat, iwin=[pulse_times[1], pulse_times[1] + 0.1], ilim=[-1e-9, 0])
-        tfit2, vfit2, imean, params2 =
-            IVAnalysis.fit_iv(tdat, vdat, idat, iwin=[pulse_times[1] + 0.05, pulse_times[1]+0.5], ilim=[-1e-9, -5e-11])
+            IVAnalysis.fit_iv(tdat, vdat, idat, iwin=[pstart, pstart + 0.10*pdur], ilim=ilim_taum)
+        tfit2, vfit2, imean2, params2 =
+            IVAnalysis.fit_iv(tdat, vdat, idat, iwin=[pstart + 0.01, pstart+pdur], ilim=ilim_tauh)
         # println("params: ", params)
     end
+    println("analyze spikes? ", analyze_spikes)
     if analyze_spikes
-        sppars = SpikeAnalysis.SpikeDetectParameters()
+        sppars = SpikeAnalysis.SpikeDetectParameters(threshold=-0.02)
         spk_times, spk_vpeak, spk_indices, spk_inj = IVAnalysis.get_spikes(
             tdat,
             vdat,
             idat,
             sppars,
-            iwin=[pulse_times[1], pulse_times[1] + pulse_times[2]],
+            iwin=[pstart, pstart+pdur],
             ilim=[0.0, 10e-9],
         )
+
         spk_count = Array{Int64}(undef, (size(spk_inj)))
+        println("got spikes from ", size(spk_inj), " traces")
         for i = 1:size(spk_inj)[1]
             if isassigned(spk_indices, i)
                 spk_count[i] = size(spk_indices[i])[1]
@@ -248,7 +264,7 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
         end
     end
 
-
+    println("data ready to plot")
     #
     # Data is ready to plot... 
 
@@ -276,27 +292,18 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
         )
     end
 
-    # Plot the current command traces
-
-    p_Itraces = plot(
-        tdat * 1e3,
-        idat * 1e9,
-        xlims=(0, tmax * 1e3),
-        ylims=(top_lims * 1e9, -top_lims * 1e9),
-        legend=false,
-        w=0.5,
-        linecolor="black",
-    )
-
     fnsplit = split(filename, "/")
     fn = "File: " * fnsplit[end-3] * "/" * fnsplit[end-2] * "/" * fnsplit[end-1] * "/" * fnsplit[end]
-
+    tdat = tdat .* 1e3
+    vdat = vdat .* 1e3
+    idat = idat .* 1e9
     # plot the voltage traces
+    println("plotting voltage traces")
     ylim_min = minimum(vdat)
     ylim_max = maximum(vdat)
     p_Vtraces = plot(
-        tdat .* 1e3,
-        vdat .* 1e3,
+        tdat,
+        vdat,
         xlims=(0, tmax * 1e3),
         # ylims = (ylim_min, ylim_max),
         legend=nothing,
@@ -305,6 +312,25 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
         title=fn,
         titlefontsize=9,
     )
+    println("vdat plotted")
+    # Plot the current command traces
+    # println("plotting current traces")
+    # println("toplims: ", top_lims)
+    # println("tmax: ", tmax)
+    # println("size tdat: ", size(tdat))
+    # println("size idat: ", size(idat))
+    # println("size vdat: ", size(vdat))
+    p_Itraces = plot(
+        tdat,
+        idat,
+        xlims=(0, tmax * 1e3),
+        # ylims=(top_lims * 1e9, -top_lims * 1e9),
+        legend=false,
+        w=0.5,
+        linecolor="black",
+    )
+
+    println("idat plotted")
     # if fits
     #     p_Fits_taum = plot(
     #         tfit .* 1e3,
@@ -313,9 +339,10 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
     #         w=0.5,
     #     )
     # end
-    p3plot = false
+    p3plot = true
     p_ISI = 0
     if analyze_spikes
+        println("Plotting spike peaks")
         plot!(
             p_Vtraces,  # put on voltage traces
             tspikes .* 1e3,
@@ -328,6 +355,7 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
             markerstrokewidth=0,
         )
         # plot isi vs latency
+        println("Plotting isi vs latency")
         first_plot = true
         for i = 1:size(spk_times)[1]
             if !isassigned(spk_times, i)
@@ -339,8 +367,8 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
             u = length(spk_times[i])
             if first_plot == true
                 p_ISI = plot(
-                    spk_times[i][1:u-1] * 1e3,
-                    diff(spk_times[i]) * 1e3,
+                    spk_times[i][1:u-1] .* 1e3,
+                    diff(spk_times[i]) .* 1e3,
                     marker="circle",
                     markerstrokewidth=0,
                     m=2.5,
@@ -362,23 +390,38 @@ function IV_read_and_plot(filename, fits=true, ivs=true, analyze_spikes=true)
         end
         p3plot = true
     end
+    println("spikeinfo plotted")
     plot!(xlabel="T (ms)", ylabel="V (mV)", p_Vtraces)
     plot!(xlabel="T (ms)", ylabel="I (nA)", p_Itraces)
     plot!(xlabel="I (nA)", ylabel="V (mV)", p_ssIV)
     plot!(xlabel="I (nA)", ylabel="Spikes", p_FI)
     if fits
-        plot!(p_Vtraces, tfit.*1e3, vfit.*1e3, w=0.35, color="red", line=:solid)
+        plot!(p_Vtraces, tfit.*1e3, vfit.*1e3, w=0.35, color="blue", line=:solid)
         plot!(p_Vtraces, tfit2.*1e3, vfit2.*1e3, w=0.05, color="darkred")
     end# p1d = plot(td, vd, xlims=(0, tmax), ylims=top_lims, legend=false)
+    println("Fits plotted")
     # p1f = plot(tfit, vfit, )
+    println("setting layout")
     l = @layout [a{0.6w} b]
+    println("layout set")
     leftplots = plot(p_Vtraces, p_Itraces, layout=grid(2, 1, heights=[0.9, 0.1]))
+    p3plot = false
     if p3plot
-        rightplots = plot(p_ssIV, p_FI, p_ISI, layout=grid(3, 1, heights=[0.33, 0.33, 0.33]))
+        println("p3plot")
+        l = @layout [
+            [a{0.33h} b{0.33h} c{0.33h}];
+             d{1.0h}
+            ]
+        println("l: ", l)
+        rightplots = plot(p_ssIV, p_FI, p_ISI, layout=@layout[grid(3,1)])
+        print("rightplots plotted")
     else
-        rightplots = plot(p_ssIV, p_FI, layout=grid(2, 1, heights=[0.33, 0.33]))
+        println("not p3plot")
+        rightplots = plot(p_ssIV, p_FI, layout=grid(2, 1, heights=[0.30, 0.30]))
     end
+    println("laying out")
     plot(leftplots, rightplots, layout=l, legend=false, margin=3mm, rightmargin=8mm)
+    println("Plots arranged")
     plot!(size=(800, 800))
     # plot(p1, p2, p0, layout = grid(2, 2, heights=[0.75, 0.25]), title=("V", "I"))
 end

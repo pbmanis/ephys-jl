@@ -1,18 +1,20 @@
 # __precompile__()
 module Acq4Reader
-using Statistics
-using HDF5
+using AddPackage
+@add using Statistics
+@add using HDF5
 # using Plots
 # using PyPlot
 # using Printf
-using Base.Threads
-using ArraysOfArrays
-using ElasticArrays
-using Crayons.Box
-using Distributed
-using SharedArrays  # important for parallel/looping
+
+@add using ThreadsX
+@add using ArraysOfArrays
+@add using ElasticArrays
+@add using Crayons
+@add using Distributed
+@add using SharedArrays  # important for parallel/looping
 # using ProgressMeter
-using InteractiveUtils
+@add using InteractiveUtils
 include("configfile.jl")
 
 export read_hdf5, get_lims, get_stim_times
@@ -37,8 +39,8 @@ function read_hdf5(filename)
     
     okfile = isdir(filename)
     if !okfile
-        println(RED_FG, "Directory not found:")
-        println("    ", filename, WHITE_FG)
+        println("file not found:")
+        println("    ", filename, )
         error()
     end
 
@@ -51,7 +53,7 @@ function read_hdf5(filename)
     vdat = Array{Float64}(undef)
     tdat = Array{Float64}(undef)
     nsweeps = size(sweeps)[1]
-    println(WHITE_FG, "    Nsweeps: ", nsweeps)
+    println("    Nsweeps: ", nsweeps)
     # temporary allocation so we don't lose scope on arrays
     nwave = 1
     s_idat = SharedArray{Float64,2}((nwave, nsweeps))
@@ -62,8 +64,8 @@ function read_hdf5(filename)
     mode = ""
     clampstate = ""
     data_info = ""
-    println("    Number of threads: ", Threads.nthreads())
-    # note we wet this up for threading, but that causes memory errors...
+    println("    Number of threads: ", Base.Threads.nthreads())
+    # note we set this up for threading, but that causes memory errors...
     # kept same structure here though.
     @time for s = 1:nsweeps
         sweep = sweeps[s]
@@ -118,7 +120,7 @@ function read_hdf5(filename)
     tdat = deepcopy(s_tdat)
     vdat = deepcopy(s_vdat)
     indexfile = joinpath(filename, ".index")
-    println("Reading index file: ", indexfile)
+    # println("Reading index file: ", indexfile)
     cf = Configfile.readConfigFile(indexfile)
     if haskey(cf["."]["devices"], "Laser-Blue-raw")
         wavefunction =
@@ -158,8 +160,10 @@ function get_lims(mode)
         top_lims = (-120e-3, 40e-3)
         bot_lims = (-2e-9, 2e-9)
     else
-        println(RED_FG, "Unknown Mode: ", mode, WHITE_FG)
+        println("Unknown Mode: ", mode, )
+        error("Unknown Mode")
     end
+    return top_lims, bot_lims
 end
 
 function get_indices(data_info)
@@ -189,7 +193,7 @@ function get_indices(data_info)
             botidx = 2
         end
     else
-        println(RED_FG, "mode is not known: ", mode, WHITE_FG)
+        println("mode is not known: ", mode, )
     end
     return topidx, botidx
 end
@@ -214,7 +218,7 @@ function get_stim_times(data_info; device::AbstractString = "Laser")
     query = device * ".wavefunction"
     wv = data_info[query]
     u = split(wv, "\n")
-    println("get stim times u: ", u)
+    # println("get stim times u: ", u)
     stim_lats = Vector{Float64}()
     re_float = r"[+-]?\d+\.?\d*"
     for i = 1:5 # size(u)[1]
@@ -237,8 +241,8 @@ function read_one_sweep(filename::AbstractString, sweep_dir, device)
     full_filename = joinpath(filename, sweep_dir, device)
     okfile = isfile(full_filename)
     if !okfile
-        println(RED_FG, "File not found:")
-        println("    ", full_filename, WHITE_FG)
+        println("File not found:")
+        println("    ", full_filename, )
         return false, false, false
     end
     tf = HDF5.ishdf5(full_filename)
@@ -297,3 +301,9 @@ end
 
 
 end
+
+function julia_main()::Cint
+    # do something based on ARGS?
+    return 0 # if things finished successfully
+end
+

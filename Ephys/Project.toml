@@ -1,0 +1,4 @@
+name = "Ephys"
+uuid = "ee40fba3-c3ff-4301-be88-5c19d4dcc4e7"
+authors = ["Paul Manis <pmanis@med.unc.edu>"]
+version = "0.1.0"

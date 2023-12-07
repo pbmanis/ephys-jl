@@ -3,20 +3,90 @@
 Julia versions of some of the ephys analysis routines. Faster than the python versions, but
 stripped-down also. This is beta code and is not fully tested yet.
 
-Problems appear with PyPlot/PyCall. 
-You may need to install an arm-64 version of miniconda:
-brew install miniconda
-But this doesn't work (12/1/2021). 
+Note: as of 7 Dec 2023, the config file can be read in pure julia (no pycall)
 
+To run LSPSAnalysis.jl fron a cold start:
+--------
+
+  Run julia.
+
+  julia --threads 12 (or some number)
+
+Make sure a filename is defined:
+  for example: fn = "/Volumes/Pegasus_002/ManisLab_Data3/Kasten_Michael/VGAT_DCNmap/2018.08.31_000/slice_000/cell_000/VGAT_5mspulses_5Hz_pt045_to_pt1_000"
+
+  include("src/LSPSAnalysis.jl")
+  LSPSAnalysis.LSPS_read_and_plot(filename=fn)
+
+That should generate a graph after a bit.
+
+To run IVAnalysis.jl:
+
+include("src/IVAnalysis.jl")
+fniv = "/Volumes/Pegasus_002/ManisLab_Data3/Kasten_Michael/VGAT_DCNmap/2018.03.20_000/slice_000/cell_000/CCIV_1nA_max_000"
+
+
+
+
+
+
+Cold:
 Start Julia
  use the shell to go to the ephys-jl directory (cd ephys-jl)
- then loade the package manager: 
+ then load the package manager: 
 ] pkg
 pkg >  activate .
 pkg >  instantiate
+pkg >  update
+pkg > build ( or rebuild)
+pkg > add .
 
 
+Now build the working environment:
+add HDF5_jll
+add HDF5
 just do add HDF5_jll (yes, that is right)
+
+try : "add Acq4Reader"
+add packages as needed
+
+instantiate
+activate
+
+using Acq4Reader
+
+Acq4Reader.read_hdf5(filename--- .ma)
+
+
+======================
+Building a compiled version:
+
+function julia_main()::Cint
+  # do something based on ARGS?
+  return 0 # if things finished successfully
+end
+
+this could be useful:
+
+(Acq4Reader) pkg> add AddPackage
+   Resolving package versions...
+
+using Pkg
+Pkg.generate("myapp")
+using PackageCompiler
+create_app("myapp", "myappcompiled")
+
+Run with: 
+myappcompiled/bin/myapp args...
+
+
+to use packages:
+] PKG
+pkg> add ephys
+
+
+
+
 
 OLD (Don't do this!):
     Do the "brew install hdf5" separately, and maybe use "reinstall" to force update.

@@ -7,8 +7,7 @@ using Statistics
 using Printf
 # ENV["MPLBACKEND"] = "MacOSX"
 using Plots
-
-# pyplot()
+gr()
 
 include("LSPSFitting.jl")
 include("Acq4Reader.jl")
@@ -352,7 +351,7 @@ function stack_plot(
     above_zthr : array of boolean based on AScore > some value
     saveflag : set true to write file to disk
     =#
-    println("   Doing stacked trace plot")
+    println("   Preparing stacked trace plot")
     vspc = 50.0 * 1e-12
     twin = [0.0, 1.0]
     tmax = maximum(twin) * 1e3 # express in msec
@@ -369,7 +368,6 @@ function stack_plot(
     top_lims = vspc * (ntraces + 1)
     bot_lims = -vspc
     ylims = [bot_lims, top_lims]
-    println("ylims: ", ylims)
 
     p_I = nothing
     @timed for i = 1:ntraces
@@ -402,8 +400,8 @@ function stack_plot(
     for i = 1:size(stim_lats)[1]
         p_I = plot!(
             p_I,
-            [(stim_lats[i], stim_lats[i])],
-            [(ylims[1], ylims[2])],
+            [stim_lats[i], stim_lats[i]],
+            [ylims[1], ylims[2]],
             linewidth = 0.5,
             linecolor = :blue,
         )
@@ -436,6 +434,7 @@ function stack_plot(
         bottom_margin = -50Plots.px,
     )
     l = @layout([a{0.1h}; b])
+    
     p_I = plot!(
         title,
         p_I,
@@ -443,11 +442,12 @@ function stack_plot(
         layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
     ) #, 0.30, 0.30]))
 
-    PX = plot!(p_I, size = [600, 800], show = true)
+    p_X = plot(p_I, windowsize=[600, 800], show = true)
+    println("p_X generated")
     if figurename != ""
-        savefig(PX, figurename)
+        savefig(p_X, figurename)
     end
-    return PX
+    return p_X
 end
 
 end

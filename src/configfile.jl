@@ -1,8 +1,9 @@
 module Configfile
 using PyCall
 using JSON
+using Base.Meta
 
-export readConfigFile
+export readConfigFile, filetest, test
 # configfile.jl : based on:
 # 	configfile.py - Human-readable text configuration file library
 # 	Copyright 2010  Luke Campagnola
@@ -108,8 +109,15 @@ end
 function measureIndent(s::AbstractString)
     n = 1
     while n <= length(s) && s[n] == ' '
-        n += 1
+        n += 1  # count the number of spaces from start of line
     end
+    # println("length s: ", length(s), "  n = ", n, "  s=<", s, ">")
+    if length(n) < length(s) && s[n] == '#' # comment line only
+        return 0
+    end
+    if length(s) == n-1
+        return 0
+    end # blank line
     return n-1
 end
 
@@ -152,55 +160,85 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
             println("        Offending string: ", thisline)
             error("Bad indent")
         end
-        if  match(r"[:]+", thisline) === nothing
-            println("Missing colon on line: ", ln)
-            println("    Offending string: ", sl)
-            error("Missing colon")
+        if length(thisline) == 0 | isnothing(thisline)
             continue
         end
-        values = split(thisline, ':', limit=2)
-        values = strip.(values)
-        # println("Values: ", values)
-        key = values[1]
-        # println("Found key: <", key, ">  *****************************************")
-        # println("len value: ", length(values[2]))
-        if length(key) == 0
-            error("Missing name preceding colon")
-        end
-        value  = values[2]
-
-        if (length(value) > 0)  # must have a value
-            if (value[1] in ['[', '('])  & (value[end] in [']', ")"])
-                value = replace(value, "L" => "")
-            end
-            if (value[1] in ['{', '(', '[']) & (value[end] in [']', ')', '}'])
-                # strip out the "array" as pycall doesn't know how to evaluate it
-                value = replace(value, "array([" => "([")
-                val = py"eval_value"(value)
-            elseif startswith(value, "ColorMap")
-                p, value = ColorMap(value)
-                value = join([p, value], ", ")
-                val = py"eval_value"(value)
-            else
-                val = py"eval_value"(value)
-
-            end
-
-        else  # no argument/value
-            # if key == "."
-            #     val = nothing
-            #     println(" setting root key ")
-            if (ln+1 > length(lines)) | (measureIndent(splitlines[ln+1]) <= indent)
-                # println( "    blank dict for key: ", key)
-                val = nothing
-            else
-                # println(" >>>> Going deeper..", ln)
-                ln, val = parseConfigString(lines, start=ln+1)
+        # check for comment and remove it
+        if !isnothing(match(r"[#]+", thisline))
+            # println("Line has comment")
+            thisline = split(thisline, "#", limit=2)[1]  # strip off the comment at the end of the line
+            if !isnothing(match(r"[\s]+", thisline))
+                thisline = nothing
+                # println("empty line", thisline)
             end
         end
-        # println("setting key: ", key, " to value: ", val)
-        data[key] = val
-        # println("\n\nKEYS:\n", keys(data))
+
+        if !isnothing(thisline)
+            # check for key
+            if isnothing(match(r"[:]+", thisline))
+                println("    Missing colon on line: ", ln)
+                println("    Offending string: ", thisline)
+                error("Missing colon")
+            end
+            values = split(thisline, ':', limit=2)
+            values = strip.(values)
+            # println("Raw Values: ", values)
+            key = values[1]
+            # println("Found key: <", key, ">  *****************************************")
+            # println("len value: ", length(values[2]))
+            if length(key) == 0
+                error("Missing name preceding colon")
+            end
+            value  = values[2]
+            value = replace(value, "\'" => "\"")  # replace ' with "
+            value = replace(value, "False" => "false")
+            value = replace(value, "True" => "true")
+            # println("value...", value)
+            value = replace(value, "u\"None\"" => "None")
+            # println("getting value: ", value)
+            if (length(value) > 0)  # must have a value
+                if (value[1] in ['[', '('])  & (value[end] in [']', ")"])
+                    value = replace(value, "L" => "")
+                end
+                if (value[1] in ['{', '(', '[']) & (value[end] in [']', ')', '}'])
+                    # strip out the "array" as pycall doesn't know how to evaluate it
+                    value = replace(value, "array([" => "([")
+                    value = replace(value, "None" => "nothing" )
+                    # println("Array value to parse: ", value)
+                    #val = py"eval_value"(value)
+                    val = eval(Meta.parse(value))
+                elseif startswith(value, "ColorMap")
+                    p, value = ColorMap(value)
+                    value = join([p, value], ", ")
+                    # println("Color map is: ", value)
+                    # val = py"eval_value"(value)
+                    val = eval(Meta.parse(value))
+                elseif startswith(value, "#")
+                    # println("Comment is: ", value)
+                    val = nothing
+                else
+                    # val = py"eval_value"(value)
+                    val = string(value) # eval(Meta.parse(value))
+                    # println("else value is: ", value)
+    
+                end
+
+            else  # no argument/value
+                # if key == "."
+                #     val = nothing
+                #     println(" setting root key ")
+                if (ln+1 > length(lines)) | (measureIndent(splitlines[ln+1]) <= indent)
+                    # println( "    blank dict for key: ", key)
+                    val = nothing
+                else
+                    # println(" >>>> Going deeper..", ln)
+                    ln, val = parseConfigString(lines, start=ln+1)
+                end
+            end
+            # println("setting key: ", key, " to value: ", val)
+            data[key] = val
+            # println("\n\nKEYS:\n", keys(data))
+        end
     end
     return ln, data
 end
@@ -261,9 +299,9 @@ end
 
 function test()
 
-    fn = "/Users/pbmanis/Desktop/2018.02.12_000/slice_001/cell_000/CCIV_4nA_max_002/.index"
+    fn = "/Volumes/Pegasus_002/ManisLab_Data3/Kasten_Michael/NF107Ai32_Het/2018.02.12_000/slice_001/cell_000/CCIV_4nA_max_002/.index"
     data = readConfigFile(fn)
-    print(json(data, 4))
+    # print(json(data, 4))
     # fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
     # data = readConfigFile(fn)
     # Println(data)
@@ -273,13 +311,13 @@ function filetest()
     fn, fnio = mktemp()
 
     cf = """
-    key: 'value'
-    key2:              ##comment
-                    ##comment
-    key21: 'value' ## comment
-                    ##comment
+    key2:              #comment
+                    #comment
+    key21: 'value' # comment
+                    #comment
     key22: [1,2,3]
     key23: 234  #comment
+    key99: 'value'
     """
     write(fnio, cf)
     close(fnio)
