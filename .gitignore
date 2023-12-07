@@ -6,5 +6,6 @@ python/__pycache__/configfile.cpython-310.pyc
 .vscode/settings.json
 .DS_Store
 .CondaPkg/*
+EPComp/*
 
 stack_plot1.pdf
