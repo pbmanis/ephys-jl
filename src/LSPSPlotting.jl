@@ -1,10 +1,12 @@
 module LSPSPlotting
+using AddPackage
 using Base
 using Formatting
 using StatsBase
 import DataFrames: DataFrame, describe, select, Not
 using Statistics
 using Printf
+@add using NoiseRobustDifferentiation
 # ENV["MPLBACKEND"] = "MacOSX"
 using Plots
 gr()
@@ -15,55 +17,51 @@ include("Acq4Reader.jl")
 export plot_one_trace, stack_plot, plot_trace, finalize_plot
 export plot_event_distribution
 
-function plot_event_distributions(
-    df;
-    response_window = 25.0,
-    figurename = "",
-)
+function plot_event_distributions(df; response_window=25.0, figurename="")
     # d is the dataframe (from miniAnalysis events_to_dataframe)
     binsx = 50
     p_amp = plot(
-        df.amp,
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, maximum(df.amp)],
-        xlabel = "Amplitude (pA)",
-        ylabel = "# obs",
+        df.amp;
+        seriestype=:histogram,
+        bins=binsx,
+        orientation=:v,
+        framestyle=:semi,
+        xlim=[0, maximum(df.amp)],
+        xlabel="Amplitude (pA)",
+        ylabel="# obs",
     )
     p_dur = plot(
-        df.dur,
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, maximum(df.dur)],
-        xlabel = "Durations (ms)",
-        ylabel = "# obs",
+        df.dur;
+        seriestype=:histogram,
+        bins=binsx,
+        orientation=:v,
+        framestyle=:semi,
+        xlim=[0, maximum(df.dur)],
+        xlabel="Durations (ms)",
+        ylabel="# obs",
     )
     p_rt = plot(
-        df.rt,
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, maximum(df.rt)],
-        xlabel = "Rise Times (ms)",
-        ylabel = "# obs",
+        df.rt;
+        seriestype=:histogram,
+        bins=binsx,
+        orientation=:v,
+        framestyle=:semi,
+        xlim=[0, maximum(df.rt)],
+        xlabel="Rise Times (ms)",
+        ylabel="# obs",
     )
     p_lat = plot(
-        df.lat[df.lat.>=0.0],
-        seriestype = :histogram,
-        bins = binsx,
-        orientation = :v,
-        framestyle = :semi,
-        xlim = [0, response_window],
-        xlabel = "Latencies (ms)",
-        ylabel = "# obs",
+        df.lat[df.lat .>= 0.0];
+        seriestype=:histogram,
+        bins=binsx,
+        orientation=:v,
+        framestyle=:semi,
+        xlim=[0, response_window],
+        xlabel="Latencies (ms)",
+        ylabel="# obs",
     )
     l = @layout [a b; c d] # ; e f]
-    u = plot(p_amp, p_dur, p_rt, p_lat, layout = l, show = true)
+    u = plot(p_amp, p_dur, p_rt, p_lat; layout=l, show=true)
     if figurename != ""
         savefig(u, figurename)
     end
@@ -77,10 +75,10 @@ function decorate_and_paint!(
     vertical_offset::Float64,
     eventdf::DataFrame,
     sign::Int64;
-    linecolor::Union{Symbol,String} = :green,
-    markercolor::Union{Symbol,String} = :green,
-    linewidth::Float64 = 1.0,
-    class::String = "evoked",
+    linecolor::Union{Symbol,String}=:green,
+    markercolor::Union{Symbol,String}=:green,
+    linewidth::Float64=1.0,
+    class::String="evoked",
 )
     #=
     Decorate traces with a dot to indicate the detected peak, 
@@ -94,17 +92,17 @@ function decorate_and_paint!(
     changed_df = filter(r -> r.class != r.newclass, eventdf)
     # println("Changed events: ", size(changed_df))
     nchev = size(changed_df)[1]  # get number of rows with changes
-    pkt = evk[(evk.peaktime.<tmax*1e3), :peaktime]
-    onset = evk[(evk.peaktime.<tmax*1e3), :onsettime]
-    amp = sign .* evk[(evk.peaktime.<tmax*1e3), :amp]
-    dur = evk[(evk.peaktime.<tmax*1e3), :dur]
+    pkt = evk[(evk.peaktime .< tmax * 1e3), :peaktime]
+    onset = evk[(evk.peaktime .< tmax * 1e3), :onsettime]
+    amp = sign .* evk[(evk.peaktime .< tmax * 1e3), :amp]
+    dur = evk[(evk.peaktime .< tmax * 1e3), :dur]
     # classify changed events so we can mark them
     #=
     Choose from [:none, :auto, :circle, :rect, :star5, :diamond,
      :hexagon, :cross, :xcross, :utriangle, :dtriangle, 
     :rtriangle, :ltriangle, :pentagon, :heptagon, :octagon, :star4, :star6, :star7, :star8, :vline, :hline, :+, :x].
     =#
-    for i = 1:size(changed_df)[1]
+    for i in 1:size(changed_df)[1]
         markersize = 3
         markershape = :circle
         dfr = changed_df[i, :]
@@ -128,56 +126,54 @@ function decorate_and_paint!(
         p_I = plot!(
             p_I,
             [dfr.peaktime * 1e-3],
-            [(sign * dfr.amp * 1e-12) .+ vertical_offset],
-            seriestype = :scatter,
-            markercolor = :red,
-            markersize = markersize,
-            markershape = markershape,
-            legend = false,
+            [(sign * dfr.amp * 1e-12) .+ vertical_offset];
+            seriestype=:scatter,
+            markercolor=:red,
+            markersize=markersize,
+            markershape=markershape,
+            legend=false,
         )
     end
-
 
     # decorate with a dot at the peak using the passed color for the event type
     p_I = plot!(
         p_I,
         pkt .* 1e-3,
-        (amp .* 1e-12) .+ vertical_offset,
-        seriestype = :scatter,
-        markercolor = markercolor,
-        markerstrokecolor = markercolor,
-        markeralpha = 0.35,
-        markerstrokewidth = 0.5,
-        markersize = 2.5,
-        legend = false,
+        (amp .* 1e-12) .+ vertical_offset;
+        seriestype=:scatter,
+        markercolor=markercolor,
+        markerstrokecolor=markercolor,
+        markeralpha=0.35,
+        markerstrokewidth=0.5,
+        markersize=2.5,
+        legend=false,
     )
     # paint events according to their classification
-    for k = 1:size(onset)[1]
+    for k in 1:size(onset)[1]
         onset_i = Int64(floor(1e-3 .* onset[k] ./ dt_seconds))
         pkend_i = Int64(floor(1e-3 .* (onset[k] .+ dur[k]) ./ dt_seconds))
         # println("onset: ", onset_i, " pkend: ", pkend_i)
         p_I = plot!(
             p_I,
             tdat[onset_i:pkend_i],
-            idat[onset_i:pkend_i] .+ vertical_offset,
-            color = linecolor,
-            linewidth = 1.0 * linewidth,
-            legend = false,
+            idat[onset_i:pkend_i] .+ vertical_offset;
+            color=linecolor,
+            linewidth=1.0 * linewidth,
+            legend=false,
         )
     end
     return p_I
 end
 
-
 function plot_one_trace(
     p_I,
     tdat,
     idat;
-    vertical_offset::Float64 = 0.0,
+    vertical_offset::Float64=0.0,
     eventdf::DataFrame,
-    sign::Int64 = 1,
-    linecolor::Union{Symbol,String} = :black,
-    linewidth::Float64 = 0.5,
+    sign::Int64=1,
+    linecolor::Union{Symbol,String}=:black,
+    linewidth::Float64=0.5,
 )
     #=
     Plot one trace, including the markers on the peaks of identified events.
@@ -198,26 +194,24 @@ function plot_one_trace(
     if isnothing(p_I)
         p_I = plot(
             tdat,
-            idat .+ vertical_offset,
-            linewidth = linewidth,
-            color = linecolor,
+            idat .+ vertical_offset;
+            linewidth=linewidth,
+            color=linecolor,
             # xlim = [0.0, tmax],# xlabel="Dur (ms)",
             # ylim = ylims, #ylabel="Amp (pA)",
             # subplot = 1,
-            framestyle = :none,
-            legend = false,
+            framestyle=:none,
+            legend=false,
         )
     else
         p_I = plot!(
             p_I,
             tdat,
-            idat .+ vertical_offset,
-            linewidth = linewidth,
-            color = linecolor,
-            legend = false,
+            idat .+ vertical_offset;
+            linewidth=linewidth,
+            color=linecolor,
+            legend=false,
         )
-
-
     end
     p_I = decorate_and_paint!(
         p_I,
@@ -225,11 +219,11 @@ function plot_one_trace(
         idat,
         vertical_offset,
         eventdf,
-        sign,
-        linecolor = :red,
-        linewidth = linewidth * 1.5,
-        class = "evoked",
-        markercolor = :red,
+        sign;
+        linecolor=:red,
+        linewidth=linewidth * 1.5,
+        class="evoked",
+        markercolor=:red,
     )
     p_I = decorate_and_paint!(
         p_I,
@@ -237,11 +231,11 @@ function plot_one_trace(
         idat,
         vertical_offset,
         eventdf,
-        sign,
-        linecolor = :orange,
-        linewidth = linewidth,
-        class = "direct",
-        markercolor = :orange,
+        sign;
+        linecolor=:orange,
+        linewidth=linewidth,
+        class="direct",
+        markercolor=:orange,
     )
     p_I = decorate_and_paint!(
         p_I,
@@ -249,11 +243,11 @@ function plot_one_trace(
         idat,
         vertical_offset,
         eventdf,
-        sign,
-        linecolor = :cyan,
-        linewidth = linewidth * 0.75,
-        class = "spontaneous",
-        markercolor = :cyan,
+        sign;
+        linecolor=:cyan,
+        linewidth=linewidth * 0.75,
+        class="spontaneous",
+        markercolor=:cyan,
     )
     p_I = decorate_and_paint!(
         p_I,
@@ -261,25 +255,18 @@ function plot_one_trace(
         idat,
         vertical_offset,
         eventdf,
-        sign,
-        linecolor = :magenta,
-        linewidth = linewidth,
-        class = "noise",
-        markercolor = :magenta,
+        sign;
+        linecolor=:magenta,
+        linewidth=linewidth,
+        class="noise",
+        markercolor=:magenta,
     )
 
     return p_I
 end
 
-
 function fit_and_plot_events(
-    p_raw,
-    p_sub,
-    x,
-    y,
-    color;
-    plotting::Bool = true,
-    mindy::Float64 = 100.0,
+    p_raw, p_sub, p_deriv, x, y, color; plotting::Bool=true, mindy::Float64=0.75e-2
 )
 
     # fits = Vector{Float64}(undef, 4)
@@ -291,42 +278,64 @@ function fit_and_plot_events(
     # end
     # bestn = argmin(fits)
     bestn = 3
-    minflag, y0, efit = LSPSFitting.fit_direct(x, y, n = bestn, mindy = mindy)
+    minflag, yfit, efit = LSPSFitting.fit_direct(x, y; n=bestn, mindy=mindy)
+    yfit = yfit .* 1e12  # change units to pA
 
     if !plotting
-        return p_raw, p_sub, y0
+        return p_raw, p_sub, yfit
     end
+    x = x .* 1e3
+    y = y .* 1e12 
 
+    # println("praw: ", isnothing(p_raw), "   p_sub", isnothing(p_sub))
+    # top panel: plot raw data
     if isnothing(p_raw)
-        p_raw = plot(x, y, linecolor = color, legend = false)
-        p_raw = plot!(p_raw, x, y0, linecolor = color, legend = false, linestyle = :dash)
+        p_raw = plot(x, y; linecolor=color, legend=false)
+        p_raw = plot!(p_raw, x, yfit; linecolor=color, legend=false, linestyle=:dash)
     else
-        p_raw = plot!(p_raw, x, y, linecolor = color, legend = false)
-        p_raw = plot!(p_raw, x, y0, linecolor = color, legend = false, linestyle = :dash)
+        p_raw = plot!(p_raw, x, y; linecolor=color, legend=false)
+        p_raw = plot!(p_raw, x, yfit; linecolor=color, legend=false, linestyle=:dash)
         # println("was not nothing")
     end
-    if isnothing(p_sub)
-        p_sub = plot(x, y .- y0, linecolor = color, legend = false)
+    
+    # second panel: show the derivative, for original data and for fit data
+    yprime = tvdiff(y, 100, 0.2; dx=x[2]-x[1], scale="small", ε = 1e-9)
+    yfitprime = tvdiff(yfit, 100, 0.2; dx=x[2]-x[1], scale="small", ε = 1e-9)
+    if isnothing(p_deriv)
+        p_deriv = plot(x, yprime; linecolor=color, legend=false)
+        p_deriv = plot!(p_deriv, x, yfitprime; linecolor=color, legend=false, linestyle=:dash)
     else
-        p_sub = plot!(p_sub, x, y .- y0, linecolor = color, legend = false)
+        p_deriv = plot!(p_deriv, x, yprime; linecolor=color, legend=false)
+        p_deriv = plot!(p_deriv, x, yfitprime; linecolor=color, legend=false, linestyle=:dash)
     end
-    return p_raw, p_sub, y0
+
+    # third panel: plot the difference
+    if isnothing(p_sub)
+        p_sub = plot(x, y .- yfit; linecolor=color, legend=false)
+    else
+        p_sub = plot!(p_sub, x, y .- yfit; linecolor=color, legend=false)
+    end
+    return p_raw, p_deriv, p_sub, yfit*1e-12
 end
 
-
-function finalize_fitted_plot(p1, p2)
-    if (p1 === nothing) | (p2 === nothing)
+function finalize_fitted_plot(p1, pd, p2; figurename="direct_demo.pdf")
+    if (p1 === nothing) | (p2 === nothing) | (pd === nothing)
         return nothing
     end
-    l = @layout [a; b] # ; e f]
-    xlabel!(p1, "T (sec)")
-    ylabel!(p1, "I (A)")
-    xlabel!(p2, "T (sec)")
-    ylabel!(p2, "I (A)")
-    PX = plot(p1, p2, layout = l, size = (600, 600), show = true)
+    l = @layout [a; b; c] # ; e f]
+    xlabel!(p1, "T (ms)")
+    ylabel!(p1, "I (pA)")
+    xlabel!(pd, "T (ms)")
+    ylabel!(pd, "pA/ms")
+    xlabel!(p2, "T (ms)")
+    ylabel!(p2, "I (pA)")
+    PX = plot(p1, pd, p2; layout=l, size=(600, 600), show=true)
+    println("direct subtraction plot generated, output=", figurename)
+    if figurename != ""
+        savefig(PX, figurename)
+    end
     return PX
 end
-
 
 function stack_plot(
     df,
@@ -336,11 +345,11 @@ function stack_plot(
     sign,
     events,
     above_zthr;
-    mode = "Undef",
-    figtitle = "",
-    figurename ="",
-    maxtraces = 0,
-    makie = "", # ignored - just for compatability with LSPSStackPlot.stack_plot2
+    method="Undef",
+    figtitle="",
+    figurename="",
+    maxtraces=0,
+    makie="", # ignored - just for compatability with LSPSStackPlot.stack_plot2
 )
     #=
     Make a stacked set of plots
@@ -362,7 +371,7 @@ function stack_plot(
         ntraces = maxtraces
     end
     vertical_offset = Array{Float64,1}(undef, (ntraces))
-    for i = 1:ntraces
+    for i in 1:ntraces
         vertical_offset[i] = (i - 1) * vspc
     end
     top_lims = vspc * (ntraces + 1)
@@ -370,7 +379,7 @@ function stack_plot(
     ylims = [bot_lims, top_lims]
 
     p_I = nothing
-    @timed for i = 1:ntraces
+    @timed for i in 1:ntraces
         # println("Plotting trace: ", i)
         lc = :black
         lw = 0.25
@@ -381,14 +390,13 @@ function stack_plot(
         p_I = plot_one_trace(
             p_I,
             tdat[ipts, i],
-            idat[ipts, i],
-            vertical_offset = vertical_offset[i],
-            eventdf = df[in([i]).(df.trace), :],
-            sign = sign,
-            linecolor = lc,
-            linewidth = lw,
+            idat[ipts, i];
+            vertical_offset=vertical_offset[i],
+            eventdf=df[in([i]).(df.trace), :],
+            sign=sign,
+            linecolor=lc,
+            linewidth=lw,
         )
-
     end
 
     # avg = mean(idat[ipts, above_zthr], dims = 2)
@@ -396,54 +404,52 @@ function stack_plot(
     # p_avg = plot(tdat[ipts, 1], rawavg * 1e12, w = 0.2, linecolor = "gray")
     # p_avg = plot!(p_avg, tdat[ipts, 1], avg * 1e12, w = 0.5, linecolor = "blue")
 
-    stim_lats = 1e-3 .* Acq4Reader.get_stim_times(data_info, device = "Laser")
-    for i = 1:size(stim_lats)[1]
+    stim_lats = Acq4Reader.get_stim_arg("latency", data_info; device="Laser")
+    # blue vertical lines for stimulus locations
+    for i in 1:size(stim_lats)[1]
         p_I = plot!(
             p_I,
             [stim_lats[i], stim_lats[i]],
-            [ylims[1], ylims[2]],
-            linewidth = 0.5,
-            linecolor = :blue,
+            [ylims[1], ylims[2]];
+            linewidth=0.5,
+            linecolor=:blue,
         )
     end
-    p_I = plot!(p_I, ylims = ylims)
+    p_I = plot!(p_I; ylims=ylims)
     labels = Dict(
-        "Evoked" => :red,
-        "Direct" => :orange,
-        "Spontaneous" => :gray,
-        "Noise" => "magenta",
+        "Evoked" => :red, "Direct" => :yellow, "Spontaneous" => :gray, "Noise" => "magenta"
     )
     i = 0
     for (class, color) in labels
         p_I = plot!(
             p_I,
-            [0.05 + 0.1 * (i - 1)],
-            [ylims[1] - 1.1 * vspc],
-            linewidth = 2,
-            label = class,
-            color = color,
+            #[0.05 + 0.1 * (i - 1)],
+            [ylims[1] - 1.1 * vspc];
+            linewidth=2,
+            label=class,
+            color=color,
         )
         i += 1
     end
-    title = plot(
-        title = @sprintf("%s :: %s", mode, figurename),
-        grid = false,
-        showaxis = false,
-        yticks = false,
-        xticks = false,
-        bottom_margin = -50Plots.px,
+    title = plot(;
+        title=@sprintf("%s :: %s\n%s", method, figurename, figtitle),
+        grid=false,
+        showaxis=false,
+        yticks=false,
+        xticks=false,
+        bottom_margin=-50Plots.px,
     )
     l = @layout([a{0.1h}; b])
-    
+
     p_I = plot!(
         title,
-        p_I,
+        p_I;
         # layout = l,
-        layout = l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
+        layout=l, # grid(5, 1, heights = [0.1, 0.25, 0.25, 0.25, 0.15, 0.15]),
+        titlefontsize = 9,
     ) #, 0.30, 0.30]))
 
-    p_X = plot(p_I, windowsize=[600, 800], show = true)
-    println("p_X generated")
+    p_X = plot(p_I; windowsize=[600, 800], show=true)
     if figurename != ""
         savefig(p_X, figurename)
     end
