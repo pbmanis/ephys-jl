@@ -114,7 +114,7 @@ def writeConfigFile(data, fname):
     fd.write(s)
     fd.close()
     
-def readConfigFile(fname):
+def read_configfile(fname):
     #cwd = os.getcwd()
 
     if not os.path.exists(fname):
@@ -150,10 +150,10 @@ def genString(data, indent=''):
     for k in data:
         sk = str(k)
         if len(sk) == 0:
-            print(data)
+            print("configfile::genString data: ", data)
             raise Exception('blank dict keys not allowed (see data above)')
         if sk[0] == ' ' or ':' in sk:
-            print(data)
+            print("configfile::genString data: ", data)
             raise Exception('dict keys must not contain ":" or start with spaces [offending key is "%s"]' % sk)
         if isinstance(data[k], dict):
             s += indent + sk + ':\n'
@@ -197,7 +197,7 @@ def parseString(lines, start=0):
             ## set up local variables to use for eval
             local =allUnits.copy()
             local['OrderedDict'] = OrderedDict
-            local['readConfigFile'] = readConfigFile
+            local['read_configfile'] = read_configfile
             local['Point'] = Point
             # local['QtCore'] = QtCore
             local['ColorMap'] = ColorMap
@@ -260,11 +260,11 @@ def measureIndent(s:str):
 def test():
 
     fn = "/Users/pbmanis/Desktop/2018.09.27_000/ImageSequence_000/.index"
-    data = readConfigFile(fn)
-    print(data)
+    data = read_configfile(fn)
+    print("test data: ", data)
     fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
-    data = readConfigFile(fn)
-    print(data)
+    data = read_configfile(fn)
+    print("test data: ", data)
     
 if __name__ == '__main__':
     import tempfile
@@ -286,9 +286,9 @@ key2:              ##comment
     for line in cf.split('\n'):
         print("%02d   %s" % (num, line))
         num += 1
-    print(cf)
+    print("configfile: ", cf)
     print("============")
-    data = readConfigFile(fn)
+    data = read_configfile(fn)
     # print(data)
     os.remove(fn)
 
