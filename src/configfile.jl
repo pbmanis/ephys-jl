@@ -1,23 +1,20 @@
 module Configfile
-using PyCall
-using JSON
+# using PyCall
+# using JSON
 using Base.Meta
 
-export readConfigFile, filetest, test
+export read_configFile, filetest, test
 # configfile.jl : based on:
 # 	configfile.py - Human-readable text configuration file library
 # 	Copyright 2010  Luke Campagnola
 # 	Distributed under MIT/X11 license. See license.txt for more infomation.
 #
-# Used for reading and writing dictionary objects to a python-like configuration
-# file format. Data structures may be nested and contain any data type as long
+# Used for reading a python-like configuration
+# file format, as created and used in acq4. Data structures may be nested and contain any data type as long
 # as it can be converted to/from a string using repr and eval.
 #
 # The configfile is just a text file.
 # This is a pretty straight translation of the original code.
-
-# import re, os, sys, datetime
-# import numpy
 
 ## Very simple unit support:
 ##  - creates variable names like 'mV' and 'kHz'
@@ -34,23 +31,17 @@ UNITS = split("m,s,g,W,J,V,A,F,T,Hz,Ohm,S,N,C,px,b,B", ",")
 allUnits = Vector{String}()
 cm = 0.01
 
-py"""
-# import numpy as np
-def eval_value(arg):
-    return(eval(arg))
-"""
-
 function addUnit(p, n)
-    v = 1000 ^ n
+    v = 1000^n
     for u in UNITS
         # g[p+u] = v
-        allUnits[p+u] = v
+        allUnits[p + u] = v
     end
 end
 
 function make_SI_array(p)
     for p in SI_PREFIXES
-        if p ===  " "
+        if p === " "
             p = ""
             n = 0
         elseif p === "u"
@@ -62,8 +53,6 @@ function make_SI_array(p)
     end
 end
 
-
-
 function evalUnits(unitStr)
     """
     Evaluate a unit string into ([numerators,...], [denominators,...])
@@ -71,16 +60,15 @@ function evalUnits(unitStr)
         N m/s^2   =>  ([N, m], [s, s])
         A*s / V   =>  ([A, s], [V,])
     """
-    pass
+    return pass
 end
 
-    
 function formatUnits(units)
     """
     Format a unit specification ([numerators,...], [denominators,...])
     into a string (this is the inverse of evalUnits)
     """
-    pass
+    return pass
 end
 
 function simplify(units)
@@ -88,14 +76,13 @@ function simplify(units)
     Cancel units that appear in both numerator and denominator, then attempt to replace 
     groups of units with single units where possible (ie, J/s => W)
     """
-    pass
+    return pass
 end
-
 
 function ColorMap(c)
     c = replace(c, "ColorMap(array([" => "([")
     c = replace(c, ", dtype=uint8)" => "")
-    (p, c) = split(c, ", array(", limit=2)
+    (p, c) = split(c, ", array("; limit=2)
     c = replace(c, "array(" => "")
     c = replace(c, ")" => "")
     return p, c
@@ -103,7 +90,6 @@ end
 
 function Point(p)
     return list(p)
-
 end
 
 function measureIndent(s::AbstractString)
@@ -115,26 +101,23 @@ function measureIndent(s::AbstractString)
     if length(n) < length(s) && s[n] == '#' # comment line only
         return 0
     end
-    if length(s) == n-1
+    if length(s) == n - 1
         return 0
     end # blank line
-    return n-1
+    return n - 1
 end
 
-
-# function ParseError(message, lineNum, line, fileName)
-#     println(message, ": ", lineNum, ": ", line)
-# end
-
-function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Bool = false)
-
+function parseConfigString(lines::AbstractString; start::Int64=1, verbose::Bool=false)
     data = Dict()  # store parsed data at this level in a dictionary
 
-    splitlines = [li for li in split(lines, "\n", keepempty=false) ] # break by line breaks
-    splitlines = [sl for (i, sl) in enumerate(splitlines) if occursin(r"\S", sl)  &  ! (match(r"\s*(?:#|$)", sl) === nothing)]  ## remove empty lines and comments
+    splitlines = [li for li in split(lines, "\n"; keepempty=false)] # break by line breaks
+    splitlines = [
+        sl for (i, sl) in enumerate(splitlines) if
+        occursin(r"\S", sl) & !(match(r"\s*(?:#|$)", sl) === nothing)
+    ]  ## remove empty lines and comments
 
     indent = measureIndent(splitlines[start])  # get the current indent level
-    ln = start-1  # because we will increment this in the while true ... 
+    ln = start - 1  # because we will increment this in the while true ... 
 
     while true
         ln += 1
@@ -144,7 +127,7 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
         thisline = splitlines[ln]
 
         ## Skip blank lines or lines starting with #
-        if ! occursin(r"\S", thisline)
+        if !occursin(r"\S", thisline)
             continue
         end
 
@@ -156,7 +139,14 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
             break  # will cause return
         end
         if lineInd > indent
-            println("    Indentation is incorrect. Expected ", indent, "  got: ", lineInd, "  on line: ", ln)
+            println(
+                "    Indentation is incorrect. Expected ",
+                indent,
+                "  got: ",
+                lineInd,
+                "  on line: ",
+                ln,
+            )
             println("        Offending string: ", thisline)
             error("Bad indent")
         end
@@ -165,11 +155,9 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
         end
         # check for comment and remove it
         if !isnothing(match(r"[#]+", thisline))
-            # println("Line has comment")
-            thisline = split(thisline, "#", limit=2)[1]  # strip off the comment at the end of the line
+            thisline = split(thisline, "#"; limit=2)[1]  # strip off the comment at the end of the line
             if !isnothing(match(r"[\s]+", thisline))
                 thisline = nothing
-                # println("empty line", thisline)
             end
         end
 
@@ -180,59 +168,52 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
                 println("    Offending string: ", thisline)
                 error("Missing colon")
             end
-            values = split(thisline, ':', limit=2)
+            values = split(thisline, ':'; limit=2)
             values = strip.(values)
-            # println("Raw Values: ", values)
             key = values[1]
-            # println("Found key: <", key, ">  *****************************************")
-            # println("len value: ", length(values[2]))
             if length(key) == 0
                 error("Missing name preceding colon")
             end
-            value  = values[2]
+            # get the right-hand side of the key and re-interpret it
+            value = values[2]
             value = replace(value, "\'" => "\"")  # replace ' with "
             value = replace(value, "False" => "false")
             value = replace(value, "True" => "true")
-            # println("value...", value)
             value = replace(value, "u\"None\"" => "None")
-            # println("getting value: ", value)
             if (length(value) > 0)  # must have a value
-                if (value[1] in ['[', '('])  & (value[end] in [']', ")"])
+                # remove "L" ("long") from the values
+                if (value[1] in ['[', '(']) & (value[end] in [']', ")"])
                     value = replace(value, "L" => "")
                 end
+                # strip out the "array" as as Meta.parse cannot evaluate it
+                # also convert all "None" to "nothing" for julia
                 if (value[1] in ['{', '(', '[']) & (value[end] in [']', ')', '}'])
-                    # strip out the "array" as pycall doesn't know how to evaluate it
                     value = replace(value, "array([" => "([")
-                    value = replace(value, "None" => "nothing" )
+                    value = replace(value, "None" => "nothing")
                     # println("Array value to parse: ", value)
                     #val = py"eval_value"(value)
                     val = eval(Meta.parse(value))
                 elseif startswith(value, "ColorMap")
                     p, value = ColorMap(value)
                     value = join([p, value], ", ")
-                    # println("Color map is: ", value)
-                    # val = py"eval_value"(value)
                     val = eval(Meta.parse(value))
                 elseif startswith(value, "#")
-                    # println("Comment is: ", value)
                     val = nothing
                 else
                     # val = py"eval_value"(value)
                     val = string(value) # eval(Meta.parse(value))
-                    # println("else value is: ", value)
-    
                 end
 
             else  # no argument/value
                 # if key == "."
                 #     val = nothing
                 #     println(" setting root key ")
-                if (ln+1 > length(lines)) | (measureIndent(splitlines[ln+1]) <= indent)
+                if (ln + 1 > length(lines)) | (measureIndent(splitlines[ln + 1]) <= indent)
                     # println( "    blank dict for key: ", key)
                     val = nothing
                 else
                     # println(" >>>> Going deeper..", ln)
-                    ln, val = parseConfigString(lines, start=ln+1)
+                    ln, val = parseConfigString(lines; start=ln + 1)
                 end
             end
             # println("setting key: ", key, " to value: ", val)
@@ -243,19 +224,10 @@ function parseConfigString(lines::AbstractString; start::Int64 = 1, verbose::Boo
     return ln, data
 end
 
-#
-# def writeConfigFile(data, fname):
-#     s = genString(data)
-#     fd = open(fname, 'w')
-#     fd.write(s)
-#     fd.close()
-#
-function readConfigFile(fname)
-
+function read_configfile(fname)
     try
         open(fname, "r") do fd
             s = read(fd, String)
-
             s = replace(s, "\r\n" => s"\n")
             s = replace(s, "\r" => s"\n")
             # println("Calling parseString")
@@ -271,6 +243,13 @@ function readConfigFile(fname)
     end
 end
 
+# Not Implemented:
+# def writeConfigFile(data, fname):
+#     s = genString(data)
+#     fd = open(fname, 'w')
+#     fd.write(s)
+#     fd.close()
+#
 # def appendConfigFile(data, fname):
 #     s = genString(data)
 #     fd = open(fname, 'a')
@@ -296,14 +275,12 @@ end
 #     return s
 #
 
-
 function test()
-
     fn = "/Volumes/Pegasus_002/ManisLab_Data3/Kasten_Michael/NF107Ai32_Het/2018.02.12_000/slice_001/cell_000/CCIV_4nA_max_002/.index"
-    data = readConfigFile(fn)
+    return data = read_configfile(fn)
     # print(json(data, 4))
     # fn = "/Users/pbmanis/Desktop/Python/mrk-nf107/data_for_testing/CCIV/.index"
-    # data = readConfigFile(fn)
+    # data = read_configfile(fn)
     # Println(data)
 end
 
@@ -323,21 +300,14 @@ function filetest()
     close(fnio)
     println("=== Test:===")
     num = 0
-    for line in eachsplit(cf,"\n")
+    for line in eachsplit(cf, "\n")
         num += 1
         println(num, ": ", line)
     end
     println(cf)
     println("============")
 
-    data = readConfigFile(fn)
-
+    return data = read_configfile(fn)
 end
-
-# test()
-
-
-
-# now test some real files
 
 end
